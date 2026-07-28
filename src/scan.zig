@@ -230,6 +230,12 @@ const Thread = struct {
         }
 
         if (stat.etype != .dir) {
+            if (main.config.only_group) |gid| {
+                if (stat.ext.gid != gid) {
+                    dir.sink.addSpecial(t.sink, name, .pattern);
+                    return;
+                }
+            }
             dir.sink.addStat(t.sink, name, &stat);
             return;
         }

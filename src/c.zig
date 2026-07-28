@@ -12,6 +12,7 @@ pub const c = @cImport({
     @cInclude("unistd.h"); // getuid()
     @cInclude("sys/types.h"); // struct passwd
     @cInclude("pwd.h"); // getpwnam(), getpwuid()
+    @cInclude("grp.h"); // getgrnam(), getgrgid()
     if (@import("builtin").os.tag == .linux) {
         @cInclude("sys/vfs.h"); // statfs()
     }

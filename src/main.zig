@@ -80,6 +80,7 @@ pub const config = struct {
     pub var follow_symlinks: bool = false;
     pub var exclude_caches: bool = false;
     pub var exclude_kernfs: bool = false;
+    pub var only_group: ?u32 = null;
     pub var threads: usize = 1;
     pub var complevel: u8 = 4;
     pub var compress: bool = false;
@@ -205,6 +206,17 @@ const Args = struct {
     }
 };
 
+// Resolves a --only-group argument to a gid, accepting either a numeric gid or a group name.
+fn parseGroup(val: []const u8) !u32 {
+    if (std.fmt.parseInt(u32, val, 10)) |gid| return gid else |_| {}
+    var namebuf: [256]u8 = undefined;
+    if (val.len >= namebuf.len) return error.InvalidArg;
+    @memcpy(namebuf[0..val.len], val);
+    namebuf[val.len] = 0;
+    const grp = c.getgrnam(namebuf[0..val.len :0]) orelse return error.InvalidArg;
+    return @intCast(@as(*c.struct_group, grp).gr_gid);
+}
+
 fn argConfig(args: *Args, opt: Args.Option, infile: bool) !void {
     if (opt.is("-q") or opt.is("--slow-ui-updates")) config.update_delay = 2*std.time.ns_per_s
     else if (opt.is("--fast-ui-updates")) config.update_delay = 100*std.time.ns_per_ms
@@ -289,6 +301,9 @@ fn argConfig(args: *Args, opt: Args.Option, infile: bool) !void {
         const arg = if (infile) (util.expanduser(try args.arg(), allocator) catch unreachable) else try args.arg();
         defer if (infile) allocator.free(arg);
         readExcludeFile(arg) catch |e| try args.die("Error reading excludes from {s}: {s}.\n", .{ arg, ui.errorString(e) });
+    } else if (opt.is("--only-group")) {
+        const val = try args.arg();
+        config.only_group = parseGroup(val) catch try args.die("Unknown group: {s}.\n", .{val});
     } else if (opt.is("--exclude-caches")) config.exclude_caches = true
     else if (opt.is("--include-caches")) config.exclude_caches = false
     else if (opt.is("--exclude-kernfs")) config.exclude_kernfs = true
@@ -395,6 +410,7 @@ fn help() noreturn {
     \\  --exclude-caches           Exclude directories containing CACHEDIR.TAG
     \\  -L, --follow-symlinks      Follow symbolic links (excluding directories)
     \\  --exclude-kernfs           Exclude Linux pseudo filesystems (procfs,sysfs,cgroup,...)
+    \\  --only-group GROUP         Only count disk usage of files owned by GROUP (name or gid)
     \\  -t NUM                     Scan with NUM threads
     \\
     \\Export options:
