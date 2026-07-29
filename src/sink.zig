@@ -61,6 +61,7 @@ pub const Stat = struct {
     dev: u64 = 0,
     ino: u64 = 0,
     nlink: u31 = 0,
+    atime: i64 = 0, // last access time (unix timestamp), used only for the -a/--access-time scan filter, not persisted
     ext: model.Ext = .{},
 };
 

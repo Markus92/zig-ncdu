@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Yorhel <projects@yorhel.nl>
 // SPDX-License-Identifier: MIT
 
-pub const program_version = "2.9.2-BioHPC";
+pub const program_version = "2.9.3-BioHPC";
 
 const std = @import("std");
 const model = @import("model.zig");
@@ -80,6 +80,8 @@ pub const config = struct {
     pub var exclude_caches: bool = false;
     pub var exclude_kernfs: bool = false;
     pub var only_group: ?u32 = null;
+    pub var access_time_days: ?u32 = null; // null = -a/--access-time not given (no filtering)
+    pub var access_time_cutoff: ?i64 = null; // resolved unix timestamp, computed from access_time_days by main()
     pub var threads: usize = 0; // 0 = not set explicitly, resolved to the CPU core count by resolveThreads()
     pub var complevel: u8 = 4;
     pub var compress: bool = false;
@@ -223,6 +225,16 @@ fn resolveThreads(explicit: usize) usize {
     return if (explicit == 0) (std.Thread.getCpuCount() catch 1) else explicit;
 }
 
+// Default cutoff for -a/--access-time when no explicit number of days is
+// given: more than 365 days, i.e. at least a full year.
+const default_access_time_days: u32 = 366;
+
+// Resolves a -a/--access-time day count to a concrete unix cutoff timestamp:
+// entries last accessed before this timestamp are old enough to count.
+fn accessTimeCutoff(days: u32, now: i64) i64 {
+    return now - @as(i64, days) * std.time.s_per_day;
+}
+
 fn argConfig(args: *Args, opt: Args.Option, infile: bool) !void {
     if (opt.is("-q") or opt.is("--slow-ui-updates")) config.update_delay = 2 * std.time.ns_per_s else if (opt.is("--fast-ui-updates")) config.update_delay = 100 * std.time.ns_per_ms else if (opt.is("-x") or opt.is("--one-file-system")) config.same_fs = true else if (opt.is("--cross-file-system")) config.same_fs = false else if (opt.is("-e") or opt.is("--extended")) config.extended = true else if (opt.is("--no-extended")) config.extended = false else if (opt.is("-r") and !(config.can_delete orelse true)) config.can_shell = false else if (opt.is("-r")) config.can_delete = false else if (opt.is("--enable-shell")) config.can_shell = true else if (opt.is("--disable-shell")) config.can_shell = false else if (opt.is("--enable-delete")) config.can_delete = true else if (opt.is("--disable-delete")) config.can_delete = false else if (opt.is("--enable-refresh")) config.can_refresh = true else if (opt.is("--disable-refresh")) config.can_refresh = false else if (opt.is("--show-hidden")) config.show_hidden = true else if (opt.is("--hide-hidden")) config.show_hidden = false else if (opt.is("--show-itemcount")) config.show_items = true else if (opt.is("--hide-itemcount")) config.show_items = false else if (opt.is("--show-mtime")) config.show_mtime = true else if (opt.is("--hide-mtime")) config.show_mtime = false else if (opt.is("--show-graph")) config.show_graph = true else if (opt.is("--hide-graph")) config.show_graph = false else if (opt.is("--show-percent")) config.show_percent = true else if (opt.is("--hide-percent")) config.show_percent = false else if (opt.is("--group-directories-first")) config.sort_dirsfirst = true else if (opt.is("--no-group-directories-first")) config.sort_dirsfirst = false else if (opt.is("--enable-natsort")) config.sort_natural = true else if (opt.is("--disable-natsort")) config.sort_natural = false else if (opt.is("--graph-style")) {
         const val = try args.arg();
@@ -267,6 +279,14 @@ fn argConfig(args: *Args, opt: Args.Option, infile: bool) !void {
     } else if (opt.is("-g") or opt.is("--only-group")) {
         const val = try args.arg();
         config.only_group = parseGroup(val) catch try args.die("Unknown group: {s}.\n", .{val});
+    } else if (opt.is("-a") or opt.is("--access-time")) {
+        // Optional argument: only recognized when attached directly to the
+        // option (-a30 or --access-time=30), never as a separate next
+        // argument, since that would be ambiguous with the scan directory.
+        if (args.short != null or args.last_arg != null) {
+            const val = try args.arg();
+            config.access_time_days = std.fmt.parseInt(u32, val, 10) catch try args.die("Invalid number of days for --access-time: {s}.\n", .{val});
+        } else config.access_time_days = default_access_time_days;
     } else if (opt.is("--exclude-caches")) config.exclude_caches = true else if (opt.is("--include-caches")) config.exclude_caches = false else if (opt.is("--exclude-kernfs")) config.exclude_kernfs = true else if (opt.is("--include-kernfs")) config.exclude_kernfs = false else if (opt.is("-c") or opt.is("--compress")) config.compress = true else if (opt.is("--no-compress")) config.compress = false else if (opt.is("--compress-level")) {
         const val = try args.arg();
         const num = std.fmt.parseInt(u8, val, 10) catch try args.die("Invalid number for --compress-level: {s}.\n", .{val});
@@ -358,7 +378,8 @@ fn help() noreturn {
         \\  --exclude-caches           Exclude directories containing CACHEDIR.TAG
         \\  -L, --follow-symlinks      Follow symbolic links (excluding directories)
         \\  --exclude-kernfs           Exclude Linux pseudo filesystems (procfs,sysfs,cgroup,...)
-        \\  -g, -only-group GROUP         Only count disk usage of files owned by GROUP (name or gid)
+        \\  -g, --only-group GROUP     Only count disk usage of files owned by GROUP (name or gid)
+        \\  -a, --access-time[=DAYS]   Only count files not accessed in the last DAYS days (default: 366)
         \\  -t NUM                     Scan with NUM threads (default: number of CPU cores)
         \\
         \\Export options:
@@ -483,6 +504,9 @@ pub fn main() void {
     }
 
     config.threads = resolveThreads(config.threads);
+
+    if (config.access_time_days) |days|
+        config.access_time_cutoff = accessTimeCutoff(days, std.time.timestamp());
 
     if (@import("builtin").os.tag != .linux and config.exclude_kernfs)
         ui.die("The --exclude-kernfs flag is currently only supported on Linux.\n", .{});
@@ -712,4 +736,57 @@ test "--only-group parses a gid or group name into config.only_group" {
     var b = Args.init(&[_][:0]const u8{ "--only-group", name });
     try argConfig(&b, (try b.next()).?, false);
     try std.testing.expectEqual(@as(?u32, @intCast(gid)), config.only_group);
+}
+
+test "accessTimeCutoff computes a cutoff N days before now" {
+    const now: i64 = 1_700_000_000;
+    try std.testing.expectEqual(now - 30 * std.time.s_per_day, accessTimeCutoff(30, now));
+    try std.testing.expectEqual(now - @as(i64, default_access_time_days) * std.time.s_per_day, accessTimeCutoff(default_access_time_days, now));
+}
+
+test "default_access_time_days is more than a year (>365 days)" {
+    try std.testing.expect(default_access_time_days > 365);
+}
+
+test "-a and --access-time default to 366 days when no value is attached" {
+    const saved = config.access_time_days;
+    defer config.access_time_days = saved;
+
+    var a = Args.init(&[_][:0]const u8{"-a"});
+    try argConfig(&a, (try a.next()).?, false);
+    try std.testing.expectEqual(@as(?u32, default_access_time_days), config.access_time_days);
+
+    config.access_time_days = null;
+    var b = Args.init(&[_][:0]const u8{"--access-time"});
+    try argConfig(&b, (try b.next()).?, false);
+    try std.testing.expectEqual(@as(?u32, default_access_time_days), config.access_time_days);
+}
+
+test "-a and --access-time accept an attached explicit day count" {
+    const saved = config.access_time_days;
+    defer config.access_time_days = saved;
+
+    var a = Args.init(&[_][:0]const u8{"-a30"});
+    try argConfig(&a, (try a.next()).?, false);
+    try std.testing.expectEqual(@as(?u32, 30), config.access_time_days);
+
+    var b = Args.init(&[_][:0]const u8{"--access-time=90"});
+    try argConfig(&b, (try b.next()).?, false);
+    try std.testing.expectEqual(@as(?u32, 90), config.access_time_days);
+}
+
+test "--access-time does not consume the following positional argument" {
+    // A space-separated value is NOT supported (would be ambiguous with the
+    // scan directory positional argument): "--access-time /some/dir" must
+    // leave the directory untouched and fall back to the default cutoff.
+    const saved = config.access_time_days;
+    defer config.access_time_days = saved;
+
+    var a = Args.init(&[_][:0]const u8{ "--access-time", "/some/dir" });
+    try argConfig(&a, (try a.next()).?, false);
+    try std.testing.expectEqual(@as(?u32, default_access_time_days), config.access_time_days);
+
+    const next = (try a.next()).?;
+    try std.testing.expectEqual(false, next.opt);
+    try std.testing.expectEqualStrings("/some/dir", next.val);
 }

@@ -62,6 +62,27 @@ test "groupFiltered" {
     try std.testing.expect(groupFiltered(43));
 }
 
+// Whether a non-directory entry last accessed at the given time should be
+// excluded from the disk usage statistics due to the -a/--access-time
+// filter: entries accessed more recently than the cutoff are excluded.
+fn accessTimeFiltered(atime: i64) bool {
+    return main.config.access_time_cutoff != null and atime > main.config.access_time_cutoff.?;
+}
+
+test "accessTimeFiltered" {
+    const saved = main.config.access_time_cutoff;
+    defer main.config.access_time_cutoff = saved;
+
+    main.config.access_time_cutoff = null;
+    try std.testing.expect(!accessTimeFiltered(0));
+    try std.testing.expect(!accessTimeFiltered(1_000_000_000));
+
+    main.config.access_time_cutoff = 1_000_000_000;
+    try std.testing.expect(!accessTimeFiltered(999_999_999)); // older than cutoff: counted
+    try std.testing.expect(!accessTimeFiltered(1_000_000_000)); // exactly at cutoff: counted
+    try std.testing.expect(accessTimeFiltered(1_000_000_001)); // accessed after cutoff: excluded
+}
+
 pub fn statAt(parent: std.fs.Dir, name: [:0]const u8, follow: bool, symlink: ?*bool) !sink.Stat {
     // std.posix.fstatatZ() in Zig 0.14 is not suitable due to https://github.com/ziglang/zig/issues/23463
     var stat: std.c.Stat = undefined;
@@ -82,6 +103,7 @@ pub fn statAt(parent: std.fs.Dir, name: [:0]const u8, follow: bool, symlink: ?*b
         .dev = truncate(sink.Stat, .dev, stat.dev),
         .ino = truncate(sink.Stat, .ino, stat.ino),
         .nlink = clamp(sink.Stat, .nlink, stat.nlink),
+        .atime = stat.atime().sec,
         .ext = .{
             .pack = .{
                 .hasmtime = true,
@@ -239,7 +261,7 @@ const Thread = struct {
         }
 
         if (stat.etype != .dir) {
-            if (groupFiltered(stat.ext.gid)) {
+            if (groupFiltered(stat.ext.gid) or accessTimeFiltered(stat.atime)) {
                 dir.sink.addSpecial(t.sink, name, .pattern);
                 return;
             }

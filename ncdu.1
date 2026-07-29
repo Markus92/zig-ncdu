@@ -20,7 +20,8 @@
 .Op Fl \-include\-caches , \-exclude\-caches
 .Op Fl L , \-follow\-symlinks , \-no\-follow\-symlinks
 .Op Fl \-include\-kernfs , \-exclude\-kernfs
-.Op Fl g, \-only\-group Ar group
+.Op Fl g , \-only\-group Ar group
+.Op Fl a , \-access\-time Ar days
 .Op Fl t , \-threads Ar num
 .Op Fl c , \-compress , \-no\-compress
 .Op Fl \-compress\-level Ar num
@@ -182,7 +183,7 @@ The exact counting behavior of this flag is subject to change in the future.
 .Pp
 The complete list of currently known pseudo filesystems is: binfmt, bpf, cgroup,
 cgroup2, debug, devpts, proc, pstore, security, selinux, sys, trace.
-.It Fl g, \-only\-group Ar group
+.It Fl g , \-only\-group Ar group
 Only count the disk usage of files and other non\-directory entries owned by
 .Ar group ,
 which may be given as a group name or a numeric gid.
@@ -190,6 +191,29 @@ Entries owned by any other group are still displayed, but are not counted
 towards the disk usage statistics.
 Directories themselves are always traversed and counted regardless of their
 owning group, so that matching files nested inside them can still be found.
+.It Fl a , \-access\-time Ar days
+Only count the disk usage of non\-directory entries whose last access time
+(atime) is more than
+.Ar days
+days old.
+Entries accessed more recently than that are still displayed, but are not
+counted towards the disk usage statistics, the same way
+.Fl \-only\-group
+excludes entries.
+Directories themselves are always traversed and counted regardless of their
+own access time, so that matching files nested inside them can still be
+found.
+.Pp
+.Ar days
+is optional and, if given, must be attached directly to the option, e.g.
+.Fl a Ns Ar 30
+or
+.Fl \-access\-time Ns = Ns Ar 30 ;
+a separate, space\-separated argument is not supported, since that would be
+ambiguous with the directory to scan.
+If
+.Ar days
+is omitted, a default cutoff of 366 days (i.e. more than a year) is used.
 .It Fl t , \-threads Ar num
 Number of threads to use when scanning the filesystem, defaults to the number
 of CPU cores available on the system.
@@ -542,9 +566,11 @@ An error occurred while reading this directory.
 An error occurred while reading a subdirectory, so the indicated size may not
 be correct.
 .It <
-File or directory is excluded from the statistics by using exclude patterns or
+File or directory is excluded from the statistics by using exclude patterns,
 the
 .Fl \-only\-group
+option, or the
+.Fl \-access\-time
 option.
 .It >
 Directory is on another filesystem.

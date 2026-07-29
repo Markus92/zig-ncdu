@@ -1,6 +1,13 @@
 # SPDX-FileCopyrightText: Yorhel <projects@yorhel.nl>
 # SPDX-License-Identifier: MIT
 
+2.9.3-BioHPC - 2026-07-29
+	- BioHPC-modified build, based on upstream 2.9.2
+	- Add -a/--access-time option to only count files whose last access
+	  time is older than a given cutoff (default: 366 days if no value is
+	  given)
+	- Add -g short option alias for --only-group
+
 2.9.2-BioHPC - 2026-07-28
 	- BioHPC-modified build, based on upstream 2.9.2
 	- Add --only-group option to only count disk usage of files owned by a
