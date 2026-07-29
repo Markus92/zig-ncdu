@@ -46,6 +46,27 @@ fn truncate(comptime T: type, comptime field: anytype, x: anytype) std.meta.fiel
 }
 
 
+// Whether a non-directory entry owned by the given gid should be excluded
+// from the disk usage statistics due to the --only-group filter.
+fn groupFiltered(gid: u32) bool {
+    return main.config.only_group != null and gid != main.config.only_group.?;
+}
+
+test "groupFiltered" {
+    const saved = main.config.only_group;
+    defer main.config.only_group = saved;
+
+    main.config.only_group = null;
+    try std.testing.expect(!groupFiltered(0));
+    try std.testing.expect(!groupFiltered(1000));
+
+    main.config.only_group = 42;
+    try std.testing.expect(!groupFiltered(42));
+    try std.testing.expect(groupFiltered(0));
+    try std.testing.expect(groupFiltered(43));
+}
+
+
 pub fn statAt(parent: std.fs.Dir, name: [:0]const u8, follow: bool, symlink: ?*bool) !sink.Stat {
     // std.posix.fstatatZ() in Zig 0.14 is not suitable due to https://github.com/ziglang/zig/issues/23463
     var stat: std.c.Stat = undefined;
@@ -230,11 +251,9 @@ const Thread = struct {
         }
 
         if (stat.etype != .dir) {
-            if (main.config.only_group) |gid| {
-                if (stat.ext.gid != gid) {
-                    dir.sink.addSpecial(t.sink, name, .pattern);
-                    return;
-                }
+            if (groupFiltered(stat.ext.gid)) {
+                dir.sink.addSpecial(t.sink, name, .pattern);
+                return;
             }
             dir.sink.addStat(t.sink, name, &stat);
             return;

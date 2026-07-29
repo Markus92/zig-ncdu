@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Yorhel <projects@yorhel.nl>
 // SPDX-License-Identifier: MIT
 
-pub const program_version = "2.10.0";
+pub const program_version = "2.9.2-BioHPC";
 
 const std = @import("std");
 const model = @import("model.zig");
@@ -81,7 +81,7 @@ pub const config = struct {
     pub var exclude_caches: bool = false;
     pub var exclude_kernfs: bool = false;
     pub var only_group: ?u32 = null;
-    pub var threads: usize = 1;
+    pub var threads: usize = 0; // 0 = not set explicitly, resolved to the CPU core count by resolveThreads()
     pub var complevel: u8 = 4;
     pub var compress: bool = false;
     pub var export_block_size: ?usize = null;
@@ -215,6 +215,13 @@ fn parseGroup(val: []const u8) !u32 {
     namebuf[val.len] = 0;
     const grp = c.getgrnam(namebuf[0..val.len :0]) orelse return error.InvalidArg;
     return @intCast(@as(*c.struct_group, grp).gr_gid);
+}
+
+// Resolves the configured thread count to a concrete number of threads to
+// use for scanning. 0 means "not set explicitly" (the default), which
+// resolves to the number of CPU cores available on the system.
+fn resolveThreads(explicit: usize) usize {
+    return if (explicit == 0) (std.Thread.getCpuCount() catch 1) else explicit;
 }
 
 fn argConfig(args: *Args, opt: Args.Option, infile: bool) !void {
@@ -393,6 +400,7 @@ fn version() noreturn {
 fn help() noreturn {
     stdout.writeAll(
     \\ncdu <options> <directory>
+    \\(This is a version modified for BioHPC.)
     \\
     \\Mode selection:
     \\  -h, --help                 This help message
@@ -411,7 +419,7 @@ fn help() noreturn {
     \\  -L, --follow-symlinks      Follow symbolic links (excluding directories)
     \\  --exclude-kernfs           Exclude Linux pseudo filesystems (procfs,sysfs,cgroup,...)
     \\  --only-group GROUP         Only count disk usage of files owned by GROUP (name or gid)
-    \\  -t NUM                     Scan with NUM threads
+    \\  -t NUM                     Scan with NUM threads (default: number of CPU cores)
     \\
     \\Export options:
     \\  -c, --compress             Use Zstandard compression with `-o`
@@ -483,7 +491,7 @@ pub fn main() void {
     ui.main_thread = std.Thread.getCurrentId();
 
     // Grab thousands_sep from the current C locale.
-    _ = c.setlocale(c.LC_ALL, "");
+    util.ensureUtf8Locale();
     if (c.localeconv()) |locale| {
         if (locale.*.thousands_sep) |sep| {
             const span = std.mem.sliceTo(sep, 0);
@@ -546,7 +554,7 @@ pub fn main() void {
         }
     }
 
-    if (config.threads == 0) config.threads = std.Thread.getCpuCount() catch 1;
+    config.threads = resolveThreads(config.threads);
 
     if (@import("builtin").os.tag != .linux and config.exclude_kernfs)
         ui.die("The --exclude-kernfs flag is currently only supported on Linux.\n", .{});
@@ -706,4 +714,67 @@ test "argument parser" {
     try t.opt(false, "");
     try t.opt(false, "-");
     try std.testing.expectEqual(t.a.next(), null);
+}
+
+test "resolveThreads defaults to the CPU core count" {
+    const cpus = std.Thread.getCpuCount() catch 1;
+    try std.testing.expectEqual(cpus, resolveThreads(0));
+    try std.testing.expectEqual(@as(usize, 1), resolveThreads(1));
+    try std.testing.expectEqual(@as(usize, 4), resolveThreads(4));
+}
+
+test "threads config defaults to unset (0) until resolved" {
+    // No -t/--threads flag was given: the config field stays at the "unset"
+    // sentinel until main() resolves it via resolveThreads() at startup.
+    try std.testing.expectEqual(@as(usize, 0), config.threads);
+}
+
+test "-t and --threads parse an explicit thread count" {
+    const saved = config.threads;
+    defer config.threads = saved;
+
+    var a = Args.init(&[_][:0]const u8{ "-t", "3" });
+    try argConfig(&a, (try a.next()).?, false);
+    try std.testing.expectEqual(@as(usize, 3), config.threads);
+
+    var b = Args.init(&[_][:0]const u8{ "--threads=8" });
+    try argConfig(&b, (try b.next()).?, false);
+    try std.testing.expectEqual(@as(usize, 8), config.threads);
+}
+
+test "parseGroup accepts a numeric gid" {
+    try std.testing.expectEqual(@as(u32, 0), try parseGroup("0"));
+    try std.testing.expectEqual(@as(u32, 1000), try parseGroup("1000"));
+}
+
+test "parseGroup resolves a known group name" {
+    // Every process has a valid real group id; look up its name rather than
+    // assuming a specific group (e.g. "root") exists under that name on
+    // every platform (it doesn't on macOS, for example).
+    const gid = c.getgid();
+    const grp = c.getgrgid(gid) orelse return error.SkipZigTest;
+    const name = try allocator.dupeZ(u8, std.mem.span(@as(*c.struct_group, grp).gr_name));
+    defer allocator.free(name);
+    try std.testing.expectEqual(@as(u32, @intCast(gid)), try parseGroup(name));
+}
+
+test "parseGroup rejects an unknown group name" {
+    try std.testing.expectError(error.InvalidArg, parseGroup("this-group-should-not-exist-12345"));
+}
+
+test "--only-group parses a gid or group name into config.only_group" {
+    const saved = config.only_group;
+    defer config.only_group = saved;
+
+    var a = Args.init(&[_][:0]const u8{ "--only-group", "1000" });
+    try argConfig(&a, (try a.next()).?, false);
+    try std.testing.expectEqual(@as(?u32, 1000), config.only_group);
+
+    const gid = c.getgid();
+    const grp = c.getgrgid(gid) orelse return error.SkipZigTest;
+    const name = try allocator.dupeZ(u8, std.mem.span(@as(*c.struct_group, grp).gr_name));
+    defer allocator.free(name);
+    var b = Args.init(&[_][:0]const u8{ "--only-group", name });
+    try argConfig(&b, (try b.next()).?, false);
+    try std.testing.expectEqual(@as(?u32, @intCast(gid)), config.only_group);
 }

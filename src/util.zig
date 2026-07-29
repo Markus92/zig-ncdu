@@ -4,6 +4,24 @@
 const std = @import("std");
 const c = @import("c.zig").c;
 
+// Activate the process locale from the environment, then make sure a UTF-8
+// codeset is in effect regardless of the outcome. wcwidth() (used to size
+// filenames for display, see ui.shorten()) only returns meaningful results
+// for Unicode code points, but setlocale(LC_ALL, "") silently falls back to
+// the single-byte "C"/"POSIX" locale whenever LANG/LC_ALL aren't set in the
+// environment -- which is the default in many non-interactive contexts such
+// as batch/cluster job schedulers, cron, or minimal containers. Without this
+// fallback, wcwidth() would treat every multi-byte character as width 1 and
+// filenames containing them would be sized and truncated incorrectly.
+pub fn ensureUtf8Locale() void {
+    _ = c.setlocale(c.LC_ALL, "");
+    const codeset = std.mem.span(c.nl_langinfo(c.CODESET));
+    if (!std.mem.eql(u8, codeset, "UTF-8")) {
+        if (c.setlocale(c.LC_ALL, "C.UTF-8") == null)
+            _ = c.setlocale(c.LC_ALL, "en_US.UTF-8");
+    }
+}
+
 // Cast any integer type to the target type, clamping the value to the supported maximum if necessary.
 pub fn castClamp(comptime T: type, x: anytype) T {
     // (adapted from std.math.cast)

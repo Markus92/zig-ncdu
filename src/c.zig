@@ -8,6 +8,7 @@ pub const c = @cImport({
     @cInclude("time.h"); // strftime()
     @cInclude("wchar.h"); // wcwidth()
     @cInclude("locale.h"); // setlocale() and localeconv()
+    @cInclude("langinfo.h"); // nl_langinfo()
     @cInclude("fnmatch.h"); // fnmatch()
     @cInclude("unistd.h"); // getuid()
     @cInclude("sys/types.h"); // struct passwd

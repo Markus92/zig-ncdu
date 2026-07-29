@@ -175,7 +175,10 @@ fn shortenTest(in: [:0]const u8, max_width: u32, out: [:0]const u8) !void {
 }
 
 test "shorten" {
-    _ = c.setlocale(c.LC_ALL, ""); // libc wcwidth() may not recognize Unicode without this
+    // libc wcwidth() only returns correct results for Unicode code points
+    // under a UTF-8 locale; ensureUtf8Locale() makes sure one is active even
+    // when the test runner's environment doesn't set LANG/LC_ALL.
+    util.ensureUtf8Locale();
     const t = shortenTest;
     try t("abcde", 3, "...");
     try t("abcde", 5, "abcde");

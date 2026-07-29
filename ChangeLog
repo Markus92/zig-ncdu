@@ -1,9 +1,12 @@
 # SPDX-FileCopyrightText: Yorhel <projects@yorhel.nl>
 # SPDX-License-Identifier: MIT
 
-2.10.0 - 2026-07-28
+2.9.2-BioHPC - 2026-07-28
+	- BioHPC-modified build, based on upstream 2.9.2
 	- Add --only-group option to only count disk usage of files owned by a
 	  given group (name or gid)
+	- Default number of scan threads is now the number of CPU cores instead
+	  of 1
 
 2.9.2 - 2025-10-24
 	- Still requires Zig 0.14 or 0.15

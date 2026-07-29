@@ -191,7 +191,9 @@ towards the disk usage statistics.
 Directories themselves are always traversed and counted regardless of their
 owning group, so that matching files nested inside them can still be found.
 .It Fl t , \-threads Ar num
-Number of threads to use when scanning the filesystem, defaults to 1.
+Number of threads to use when scanning the filesystem, defaults to the number
+of CPU cores available on the system.
+A value of 0 also selects this default.
 .Pp
 In single-threaded mode, the JSON export (see
 .Fl o )
