@@ -1,0 +1,152 @@
+# Builds fully static Linux release binaries (amd64/x86_64 and arm64/aarch64)
+# and attaches them to a GitHub Release.
+#
+# Static linking uses musl libc so the resulting binaries have no runtime
+# library dependencies at all -- they run unmodified on RHEL 9 and pretty
+# much any other Linux distro/kernel, regardless of the glibc/ncursesw/zstd
+# versions installed there. ncurses and zstd are built from source and
+# linked in statically, cross-compiled with Zig (no separate arm64 runner
+# needed).
+#
+# Triggers:
+#   - Pushing a tag matching 'v*' (this includes the tag GitHub creates
+#     automatically when you publish a Release through the web UI).
+#   - Manual "Run workflow" dispatch, for rebuilding assets for an existing
+#     tag without re-tagging.
+name: Release build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build and attach assets to (e.g. v2.9.2-BioHPC)'
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  # Known-good versions, pinned for reproducibility. Bump deliberately.
+  ZIG_VERSION: 0.15.1
+  NCURSES_VERSION: 6.5
+  ZSTD_VERSION: 1.5.6
+
+jobs:
+  test:
+    name: Run unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Install Zig
+        run: |
+          curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz" -o /tmp/zig.tar.xz
+          tar xf /tmp/zig.tar.xz -C /tmp
+          echo "/tmp/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+
+      - name: Install ncursesw/zstd dev headers (dynamic build, for testing only)
+        run: sudo apt-get update && sudo apt-get install -y libncurses-dev libzstd-dev
+
+      - name: Work around Zig being unable to parse Ubuntu's libncursesw.so ld script
+        # libncurses-dev ships libncursesw.so as a GNU ld script
+        # ("INPUT(libncursesw.so.6 -ltinfo)") rather than a real ELF shared
+        # object or symlink. Zig's linker can't parse that format, so
+        # replace it with a plain symlink to the real .so.6 (harmless: -ltinfo
+        # is already passed explicitly by build.zig).
+        run: |
+          lib=/usr/lib/x86_64-linux-gnu/libncursesw.so
+          if file "$lib" | grep -qi ascii; then
+            sudo ln -sf libncursesw.so.6 "$lib"
+          fi
+
+      - name: Run tests
+        run: zig build test --summary all
+
+  build:
+    name: Build static ${{ matrix.arch }} binary
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            make_target: static-linux-x86_64
+          - arch: aarch64
+            make_target: static-linux-aarch64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Install Zig
+        run: |
+          curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz" -o /tmp/zig.tar.xz
+          tar xf /tmp/zig.tar.xz -C /tmp
+          echo "/tmp/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+
+      - name: Fetch ncurses source
+        run: |
+          curl -fsSL "https://ftp.gnu.org/gnu/ncurses/ncurses-${NCURSES_VERSION}.tar.gz" -o /tmp/ncurses.tar.gz
+          mkdir ncurses
+          tar xzf /tmp/ncurses.tar.gz -C ncurses --strip-components=1
+
+      - name: Fetch zstd source
+        run: |
+          curl -fsSL "https://github.com/facebook/zstd/releases/download/v${ZSTD_VERSION}/zstd-${ZSTD_VERSION}.tar.gz" -o /tmp/zstd.tar.gz
+          mkdir zstd
+          tar xzf /tmp/zstd.tar.gz -C zstd --strip-components=1
+
+      - name: Build static binary
+        run: make ZIG=zig ${{ matrix.make_target }}
+
+      - name: Verify binary
+        run: |
+          mkdir verify
+          tar xzf ncdu-*-linux-${{ matrix.arch }}.tar.gz -C verify
+          file verify/ncdu
+
+      - name: Run binary (native arch only)
+        if: matrix.arch == 'x86_64'
+        run: |
+          verify/ncdu --version
+          verify/ncdu --help | head -5
+
+      - name: Checksum
+        run: sha256sum ncdu-*-linux-${{ matrix.arch }}.tar.gz > ncdu-${{ matrix.arch }}.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ncdu-linux-${{ matrix.arch }}
+          path: |
+            ncdu-*-linux-${{ matrix.arch }}.tar.gz
+            ncdu-${{ matrix.arch }}.sha256
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          files: dist/*
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
