@@ -10,7 +10,6 @@ const ui = @import("ui.zig");
 const exclude = @import("exclude.zig");
 const c = @import("c.zig").c;
 
-
 // This function only works on Linux
 fn isKernfs(dir: std.fs.Dir) bool {
     var buf: c.struct_statfs = undefined;
@@ -28,23 +27,20 @@ fn isKernfs(dir: std.fs.Dir) bool {
         0x73636673, // SECURITYFS_MAGIC
         0xf97cff8c, // SELINUX_MAGIC
         0x62656572, // SYSFS_MAGIC
-        0x74726163 // TRACEFS_MAGIC
+        0x74726163, // TRACEFS_MAGIC
         => true,
         else => false,
     };
     return iskern;
 }
 
-
 fn clamp(comptime T: type, comptime field: anytype, x: anytype) std.meta.fieldInfo(T, field).type {
     return util.castClamp(std.meta.fieldInfo(T, field).type, x);
 }
 
-
 fn truncate(comptime T: type, comptime field: anytype, x: anytype) std.meta.fieldInfo(T, field).type {
     return util.castTruncate(std.meta.fieldInfo(T, field).type, x);
 }
-
 
 // Whether a non-directory entry owned by the given gid should be excluded
 // from the disk usage statistics due to the --only-group filter.
@@ -66,7 +62,6 @@ test "groupFiltered" {
     try std.testing.expect(groupFiltered(43));
 }
 
-
 pub fn statAt(parent: std.fs.Dir, name: [:0]const u8, follow: bool, symlink: ?*bool) !sink.Stat {
     // std.posix.fstatatZ() in Zig 0.14 is not suitable due to https://github.com/ziglang/zig/issues/23463
     var stat: std.c.Stat = undefined;
@@ -81,11 +76,7 @@ pub fn statAt(parent: std.fs.Dir, name: [:0]const u8, follow: bool, symlink: ?*b
     }
     if (symlink) |s| s.* = std.c.S.ISLNK(stat.mode);
     return sink.Stat{
-        .etype =
-            if (std.c.S.ISDIR(stat.mode)) .dir
-            else if (stat.nlink > 1) .link
-            else if (!std.c.S.ISREG(stat.mode)) .nonreg
-            else .reg,
+        .etype = if (std.c.S.ISDIR(stat.mode)) .dir else if (stat.nlink > 1) .link else if (!std.c.S.ISREG(stat.mode)) .nonreg else .reg,
         .blocks = clamp(sink.Stat, .blocks, stat.blocks),
         .size = clamp(sink.Stat, .size, stat.size),
         .dev = truncate(sink.Stat, .dev, stat.dev),
@@ -106,7 +97,6 @@ pub fn statAt(parent: std.fs.Dir, name: [:0]const u8, follow: bool, symlink: ?*b
     };
 }
 
-
 fn isCacheDir(dir: std.fs.Dir) bool {
     const sig = "Signature: 8a477f597d28d172789f06886806bc55";
     const f = dir.openFileZ("CACHEDIR.TAG", .{}) catch return false;
@@ -115,7 +105,6 @@ fn isCacheDir(dir: std.fs.Dir) bool {
     const len = f.readAll(&buf) catch return false;
     return len == sig.len and std.mem.eql(u8, &buf, sig);
 }
-
 
 const State = struct {
     // Simple LIFO queue. Threads attempt to fully scan their assigned
@@ -173,7 +162,6 @@ const State = struct {
     }
 };
 
-
 const Dir = struct {
     fd: std.fs.Dir,
     dev: u64,
@@ -217,7 +205,7 @@ const Thread = struct {
 
         @memcpy(t.namebuf[0..name_.len], name_);
         t.namebuf[name_.len] = 0;
-        const name = t.namebuf[0..name_.len:0];
+        const name = t.namebuf[0..name_.len :0];
 
         const excluded = dir.pat.match(name);
         if (excluded == false) { // matched either a file or directory, so we can exclude this before stat()ing.
@@ -271,11 +259,7 @@ const Thread = struct {
             return;
         };
 
-        if (@import("builtin").os.tag == .linux
-            and main.config.exclude_kernfs
-            and stat.dev != dir.dev
-            and isKernfs(edir)
-        ) {
+        if (@import("builtin").os.tag == .linux and main.config.exclude_kernfs and stat.dev != dir.dev and isKernfs(edir)) {
             edir.close();
             dir.sink.addSpecial(t.sink, name, .kernfs);
             return;
@@ -308,8 +292,7 @@ const Thread = struct {
                     dir.sink.setReadError(t.sink);
                     break :blk null;
                 };
-                if (entry) |e| t.scanOne(d, e.name)
-                else {
+                if (entry) |e| t.scanOne(d, e.name) else {
                     t.sink.setDir(null);
                     t.stack.pop().?.destroy(t);
                 }
@@ -317,7 +300,6 @@ const Thread = struct {
         }
     }
 };
-
 
 pub fn scan(path: [:0]const u8) !void {
     const sink_threads = sink.createThreads(main.config.threads);
@@ -341,9 +323,7 @@ pub fn scan(path: [:0]const u8) !void {
 
     // XXX: Continue with fewer threads on error?
     for (state.threads[1..]) |*t| {
-        t.thread = std.Thread.spawn(
-            .{ .stack_size = 128 * 1024, .allocator = main.allocator }, Thread.run, .{t}
-        ) catch |e| ui.die("Error spawning thread: {}\n", .{e});
+        t.thread = std.Thread.spawn(.{ .stack_size = 128 * 1024, .allocator = main.allocator }, Thread.run, .{t}) catch |e| ui.die("Error spawning thread: {}\n", .{e});
     }
     state.threads[0].run();
     for (state.threads[1..]) |*t| t.thread.join();

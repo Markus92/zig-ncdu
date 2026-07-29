@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing tag to build and attach assets to (e.g. v2.9.2-BioHPC)'
+        description: 'Existing tag to build and attach assets to (e.g. v2.9.2)'
         required: true
 
 permissions:
