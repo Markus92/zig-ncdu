@@ -62,6 +62,26 @@ test "groupFiltered" {
     try std.testing.expect(groupFiltered(43));
 }
 
+// Whether a non-directory entry owned by the given uid should be excluded
+// from the disk usage statistics due to the --user filter.
+fn userFiltered(uid: u32) bool {
+    return main.config.only_user != null and uid != main.config.only_user.?;
+}
+
+test "userFiltered" {
+    const saved = main.config.only_user;
+    defer main.config.only_user = saved;
+
+    main.config.only_user = null;
+    try std.testing.expect(!userFiltered(0));
+    try std.testing.expect(!userFiltered(1000));
+
+    main.config.only_user = 42;
+    try std.testing.expect(!userFiltered(42));
+    try std.testing.expect(userFiltered(0));
+    try std.testing.expect(userFiltered(43));
+}
+
 // Whether a non-directory entry last accessed at the given time should be
 // excluded from the disk usage statistics due to the -a/--access-time
 // filter: entries accessed more recently than the cutoff are excluded.
@@ -261,7 +281,7 @@ const Thread = struct {
         }
 
         if (stat.etype != .dir) {
-            if (groupFiltered(stat.ext.gid) or accessTimeFiltered(stat.atime)) {
+            if (groupFiltered(stat.ext.gid) or userFiltered(stat.ext.uid) or accessTimeFiltered(stat.atime)) {
                 dir.sink.addSpecial(t.sink, name, .pattern);
                 return;
             }

@@ -21,6 +21,7 @@
 .Op Fl L , \-follow\-symlinks , \-no\-follow\-symlinks
 .Op Fl \-include\-kernfs , \-exclude\-kernfs
 .Op Fl g , \-only\-group Ar group
+.Op Fl u , \-user Ar user
 .Op Fl a , \-access\-time Ar days
 .Op Fl t , \-threads Ar num
 .Op Fl c , \-compress , \-no\-compress
@@ -191,6 +192,14 @@ Entries owned by any other group are still displayed, but are not counted
 towards the disk usage statistics.
 Directories themselves are always traversed and counted regardless of their
 owning group, so that matching files nested inside them can still be found.
+.It Fl u , \-user Ar user
+Only count the disk usage of files and other non\-directory entries owned by
+.Ar user ,
+which may be given as a username or a numeric uid.
+Entries owned by any other user are still displayed, but are not counted
+towards the disk usage statistics.
+Directories themselves are always traversed and counted regardless of their
+owning user, so that matching files nested inside them can still be found.
 .It Fl a , \-access\-time Ar days
 Only count the disk usage of non\-directory entries whose last access time
 (atime) is more than
@@ -567,11 +576,12 @@ An error occurred while reading a subdirectory, so the indicated size may not
 be correct.
 .It <
 File or directory is excluded from the statistics by using exclude patterns,
-the
-.Fl \-only\-group
-option, or the
+or the
+.Fl \-only\-group ,
+.Fl \-user ,
+or
 .Fl \-access\-time
-option.
+options.
 .It >
 Directory is on another filesystem.
 .It ^

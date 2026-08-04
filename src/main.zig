@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Yorhel <projects@yorhel.nl>
 // SPDX-License-Identifier: MIT
 
-pub const program_version = "2.9.3-BioHPC";
+pub const program_version = "2.9.4-BioHPC";
 
 const std = @import("std");
 const model = @import("model.zig");
@@ -80,6 +80,7 @@ pub const config = struct {
     pub var exclude_caches: bool = false;
     pub var exclude_kernfs: bool = false;
     pub var only_group: ?u32 = null;
+    pub var only_user: ?u32 = null;
     pub var access_time_days: ?u32 = null; // null = -a/--access-time not given (no filtering)
     pub var access_time_cutoff: ?i64 = null; // resolved unix timestamp, computed from access_time_days by main()
     pub var threads: usize = 0; // 0 = not set explicitly, resolved to the CPU core count by resolveThreads()
@@ -218,6 +219,17 @@ fn parseGroup(val: []const u8) !u32 {
     return @intCast(@as(*c.struct_group, grp).gr_gid);
 }
 
+// Resolves a --user argument to a uid, accepting either a numeric uid or a username.
+fn parseUser(val: []const u8) !u32 {
+    if (std.fmt.parseInt(u32, val, 10)) |uid| return uid else |_| {}
+    var namebuf: [256]u8 = undefined;
+    if (val.len >= namebuf.len) return error.InvalidArg;
+    @memcpy(namebuf[0..val.len], val);
+    namebuf[val.len] = 0;
+    const pwd = c.getpwnam(namebuf[0..val.len :0]) orelse return error.InvalidArg;
+    return @intCast(@as(*c.struct_passwd, pwd).pw_uid);
+}
+
 // Resolves the configured thread count to a concrete number of threads to
 // use for scanning. 0 means "not set explicitly" (the default), which
 // resolves to the number of CPU cores available on the system.
@@ -279,6 +291,9 @@ fn argConfig(args: *Args, opt: Args.Option, infile: bool) !void {
     } else if (opt.is("-g") or opt.is("--only-group")) {
         const val = try args.arg();
         config.only_group = parseGroup(val) catch try args.die("Unknown group: {s}.\n", .{val});
+    } else if (opt.is("-u") or opt.is("--user")) {
+        const val = try args.arg();
+        config.only_user = parseUser(val) catch try args.die("Unknown user: {s}.\n", .{val});
     } else if (opt.is("-a") or opt.is("--access-time")) {
         // Optional argument: only recognized when attached directly to the
         // option (-a30 or --access-time=30), never as a separate next
@@ -379,6 +394,7 @@ fn help() noreturn {
         \\  -L, --follow-symlinks      Follow symbolic links (excluding directories)
         \\  --exclude-kernfs           Exclude Linux pseudo filesystems (procfs,sysfs,cgroup,...)
         \\  -g, --only-group GROUP     Only count disk usage of files owned by GROUP (name or gid)
+        \\  -u, --user USER            Only count disk usage of files owned by USER (name or uid)
         \\  -a, --access-time[=DAYS]   Only count files not accessed in the last DAYS days (default: 366)
         \\  -t NUM                     Scan with NUM threads (default: number of CPU cores)
         \\
@@ -736,6 +752,43 @@ test "--only-group parses a gid or group name into config.only_group" {
     var b = Args.init(&[_][:0]const u8{ "--only-group", name });
     try argConfig(&b, (try b.next()).?, false);
     try std.testing.expectEqual(@as(?u32, @intCast(gid)), config.only_group);
+}
+
+test "parseUser accepts a numeric uid" {
+    try std.testing.expectEqual(@as(u32, 0), try parseUser("0"));
+    try std.testing.expectEqual(@as(u32, 1000), try parseUser("1000"));
+}
+
+test "parseUser resolves a known username" {
+    // Every process has a valid real user id; look up its name rather than
+    // assuming a specific user (e.g. "root") exists under that name on
+    // every platform (it doesn't on macOS, for example).
+    const uid = c.getuid();
+    const pwd = c.getpwuid(uid) orelse return error.SkipZigTest;
+    const name = try allocator.dupeZ(u8, std.mem.span(@as(*c.struct_passwd, pwd).pw_name));
+    defer allocator.free(name);
+    try std.testing.expectEqual(@as(u32, @intCast(uid)), try parseUser(name));
+}
+
+test "parseUser rejects an unknown username" {
+    try std.testing.expectError(error.InvalidArg, parseUser("this-user-should-not-exist-12345"));
+}
+
+test "-u and --user parse a uid or username into config.only_user" {
+    const saved = config.only_user;
+    defer config.only_user = saved;
+
+    var a = Args.init(&[_][:0]const u8{ "-u", "1000" });
+    try argConfig(&a, (try a.next()).?, false);
+    try std.testing.expectEqual(@as(?u32, 1000), config.only_user);
+
+    const uid = c.getuid();
+    const pwd = c.getpwuid(uid) orelse return error.SkipZigTest;
+    const name = try allocator.dupeZ(u8, std.mem.span(@as(*c.struct_passwd, pwd).pw_name));
+    defer allocator.free(name);
+    var b = Args.init(&[_][:0]const u8{ "--user", name });
+    try argConfig(&b, (try b.next()).?, false);
+    try std.testing.expectEqual(@as(?u32, @intCast(uid)), config.only_user);
 }
 
 test "accessTimeCutoff computes a cutoff N days before now" {
