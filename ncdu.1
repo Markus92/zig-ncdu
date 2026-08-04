@@ -185,21 +185,29 @@ The exact counting behavior of this flag is subject to change in the future.
 The complete list of currently known pseudo filesystems is: binfmt, bpf, cgroup,
 cgroup2, debug, devpts, proc, pstore, security, selinux, sys, trace.
 .It Fl g , \-only\-group Ar group
-Only count the disk usage of files and other non\-directory entries owned by
+Only count the disk usage of files and directories owned by
 .Ar group ,
 which may be given as a group name or a numeric gid.
 Entries owned by any other group are still displayed, but are not counted
 towards the disk usage statistics.
-Directories themselves are always traversed and counted regardless of their
-owning group, so that matching files nested inside them can still be found.
+Directories are always traversed regardless of their owning group, so that
+matching files nested inside them can still be found, but a directory's own
+size (typically one filesystem block) is only counted if the directory
+itself belongs to
+.Ar group ;
+otherwise only its matching descendants contribute to its displayed total.
 .It Fl u , \-user Ar user
-Only count the disk usage of files and other non\-directory entries owned by
+Only count the disk usage of files and directories owned by
 .Ar user ,
 which may be given as a username or a numeric uid.
 Entries owned by any other user are still displayed, but are not counted
 towards the disk usage statistics.
-Directories themselves are always traversed and counted regardless of their
-owning user, so that matching files nested inside them can still be found.
+Directories are always traversed regardless of their owning user, so that
+matching files nested inside them can still be found, but a directory's own
+size (typically one filesystem block) is only counted if the directory
+itself belongs to
+.Ar user ;
+otherwise only its matching descendants contribute to its displayed total.
 .It Fl a , \-access\-time Ar days
 Only count the disk usage of non\-directory entries whose last access time
 (atime) is more than

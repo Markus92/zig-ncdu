@@ -42,8 +42,10 @@ fn truncate(comptime T: type, comptime field: anytype, x: anytype) std.meta.fiel
     return util.castTruncate(std.meta.fieldInfo(T, field).type, x);
 }
 
-// Whether a non-directory entry owned by the given gid should be excluded
-// from the disk usage statistics due to the --only-group filter.
+// Whether an entry owned by the given gid should be excluded from the disk
+// usage statistics due to the --only-group filter. Used both to exclude
+// non-directory entries outright, and (via ownerFiltered() below) to zero
+// out a directory's own size contribution.
 fn groupFiltered(gid: u32) bool {
     return main.config.only_group != null and gid != main.config.only_group.?;
 }
@@ -63,7 +65,9 @@ test "groupFiltered" {
 }
 
 // Whether a non-directory entry owned by the given uid should be excluded
-// from the disk usage statistics due to the --user filter.
+// from the disk usage statistics due to the --user filter. Used both to
+// exclude non-directory entries outright, and (via ownerFiltered() below)
+// to zero out a directory's own size contribution.
 fn userFiltered(uid: u32) bool {
     return main.config.only_user != null and uid != main.config.only_user.?;
 }
@@ -80,6 +84,45 @@ test "userFiltered" {
     try std.testing.expect(!userFiltered(42));
     try std.testing.expect(userFiltered(0));
     try std.testing.expect(userFiltered(43));
+}
+
+// Whether an entry owned by the given gid/uid fails the --only-group/--user
+// filters. For directories, this doesn't exclude the directory (it's always
+// traversed, so that matching files nested inside are still found) -- it
+// only means the directory's own size shouldn't be attributed to the
+// filtered totals; see the "own size" comment in scanOne() below.
+fn ownerFiltered(gid: u32, uid: u32) bool {
+    return groupFiltered(gid) or userFiltered(uid);
+}
+
+test "ownerFiltered" {
+    const saved_g = main.config.only_group;
+    const saved_u = main.config.only_user;
+    defer {
+        main.config.only_group = saved_g;
+        main.config.only_user = saved_u;
+    }
+
+    main.config.only_group = null;
+    main.config.only_user = null;
+    try std.testing.expect(!ownerFiltered(0, 0));
+
+    main.config.only_group = 42;
+    main.config.only_user = null;
+    try std.testing.expect(!ownerFiltered(42, 0));
+    try std.testing.expect(ownerFiltered(43, 0));
+
+    main.config.only_group = null;
+    main.config.only_user = 42;
+    try std.testing.expect(!ownerFiltered(0, 42));
+    try std.testing.expect(ownerFiltered(0, 43));
+
+    // Both filters set: must satisfy both to count.
+    main.config.only_group = 42;
+    main.config.only_user = 7;
+    try std.testing.expect(!ownerFiltered(42, 7));
+    try std.testing.expect(ownerFiltered(42, 8));
+    try std.testing.expect(ownerFiltered(41, 7));
 }
 
 // Whether a non-directory entry last accessed at the given time should be
@@ -281,12 +324,24 @@ const Thread = struct {
         }
 
         if (stat.etype != .dir) {
-            if (groupFiltered(stat.ext.gid) or userFiltered(stat.ext.uid) or accessTimeFiltered(stat.atime)) {
+            if (ownerFiltered(stat.ext.gid, stat.ext.uid) or accessTimeFiltered(stat.atime)) {
                 dir.sink.addSpecial(t.sink, name, .pattern);
                 return;
             }
             dir.sink.addStat(t.sink, name, &stat);
             return;
+        }
+
+        // This directory is always traversed below, regardless of ownership,
+        // so that matching files nested inside it are still found. But if it
+        // doesn't itself belong to the --only-group/--user filter, its own
+        // size (typically one filesystem block, e.g. 4KiB) shouldn't be
+        // attributed to the filtered totals -- only its matching descendants
+        // should. Blanking it here still lets the normal aggregation in the
+        // sink roll up the (correctly filtered) sizes of its children.
+        if (ownerFiltered(stat.ext.gid, stat.ext.uid)) {
+            stat.blocks = 0;
+            stat.size = 0;
         }
 
         if (excluded == true) {
@@ -348,7 +403,15 @@ pub fn scan(path: [:0]const u8) !void {
     defer sink.done();
 
     var symlink: bool = undefined;
-    const stat = try statAt(std.fs.cwd(), path, true, &symlink);
+    var stat = try statAt(std.fs.cwd(), path, true, &symlink);
+    // Same reasoning as in Thread.scanOne(): the scanned root itself is
+    // always scanned regardless of ownership, but its own size shouldn't be
+    // attributed to the --only-group/--user filtered totals unless it
+    // itself matches.
+    if (ownerFiltered(stat.ext.gid, stat.ext.uid)) {
+        stat.blocks = 0;
+        stat.size = 0;
+    }
     const fd = try std.fs.cwd().openDirZ(path, .{ .iterate = true });
 
     var state = State{
