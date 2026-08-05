@@ -196,6 +196,14 @@ size (typically one filesystem block) is only counted if the directory
 itself belongs to
 .Ar group ;
 otherwise only its matching descendants contribute to its displayed total.
+.Pp
+A group name is first looked up directly against the system's group
+database; if that fails (for example, statically\-linked builds cannot
+resolve groups from LDAP/SSSD/NIS directly), the
+.Xr getent 1
+command is used as a fallback, which correctly consults whatever sources
+.Pa /etc/nsswitch.conf
+specifies.
 .It Fl u , \-user Ar user
 Only count the disk usage of files and directories owned by
 .Ar user ,
@@ -208,6 +216,12 @@ size (typically one filesystem block) is only counted if the directory
 itself belongs to
 .Ar user ;
 otherwise only its matching descendants contribute to its displayed total.
+.Pp
+A username is resolved the same way as
+.Fl \-only\-group
+resolves a group name: a direct system lookup first, falling back to
+.Xr getent 1
+if that fails.
 .It Fl a , \-access\-time Ar days
 Only count the disk usage of non\-directory entries whose last access time
 (atime) is more than

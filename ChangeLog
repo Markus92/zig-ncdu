@@ -9,6 +9,12 @@
 	  now only counted if the directory itself matches the filter, instead
 	  of always counting it regardless of ownership. Directories are still
 	  always traversed so that matching descendants are found either way.
+	- Fix -g/--only-group and -u/--user reporting "Unknown group"/"Unknown
+	  user" for real LDAP/SSSD/NIS-backed accounts on the static (musl)
+	  builds. musl's getgrnam()/getpwnam() only consult local /etc/group
+	  and /etc/passwd; group/user name lookups now fall back to the
+	  system's `getent`, which correctly consults /etc/nsswitch.conf, when
+	  the direct lookup fails.
 
 2.9.3-BioHPC - 2026-07-29
 	- BioHPC-modified build, based on upstream 2.9.2

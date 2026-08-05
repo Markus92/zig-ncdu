@@ -208,6 +208,32 @@ const Args = struct {
     }
 };
 
+// getpwnam()/getgrnam() only consult the local /etc/passwd and /etc/group
+// files when linked against musl (used for our static release builds) --
+// musl has no NSS module support at all, unlike glibc. So accounts backed
+// by LDAP/SSSD/NIS won't resolve there even though they genuinely exist on
+// the system. Fall back to the system's own `getent`, which is dynamically
+// linked against the real NSS stack regardless of how ncdu itself was
+// built, and will correctly consult whatever /etc/nsswitch.conf specifies.
+// Both the "passwd" and "group" getent databases put the id in the 3rd
+// colon-separated field: name:passwd:id:...
+fn getentLookup(database: []const u8, name: []const u8) !u32 {
+    const result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ "getent", database, name },
+    }) catch return error.InvalidArg;
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    if (result.term != .Exited or result.term.Exited != 0) return error.InvalidArg;
+
+    const line_end = std.mem.indexOfScalar(u8, result.stdout, '\n') orelse result.stdout.len;
+    var it = std.mem.splitScalar(u8, result.stdout[0..line_end], ':');
+    _ = it.next() orelse return error.InvalidArg;
+    _ = it.next() orelse return error.InvalidArg;
+    const id_field = it.next() orelse return error.InvalidArg;
+    return std.fmt.parseInt(u32, id_field, 10) catch return error.InvalidArg;
+}
+
 // Resolves a --only-group argument to a gid, accepting either a numeric gid or a group name.
 fn parseGroup(val: []const u8) !u32 {
     if (std.fmt.parseInt(u32, val, 10)) |gid| return gid else |_| {}
@@ -215,8 +241,8 @@ fn parseGroup(val: []const u8) !u32 {
     if (val.len >= namebuf.len) return error.InvalidArg;
     @memcpy(namebuf[0..val.len], val);
     namebuf[val.len] = 0;
-    const grp = c.getgrnam(namebuf[0..val.len :0]) orelse return error.InvalidArg;
-    return @intCast(@as(*c.struct_group, grp).gr_gid);
+    if (c.getgrnam(namebuf[0..val.len :0])) |grp| return @intCast(@as(*c.struct_group, grp).gr_gid);
+    return getentLookup("group", val);
 }
 
 // Resolves a --user argument to a uid, accepting either a numeric uid or a username.
@@ -226,8 +252,8 @@ fn parseUser(val: []const u8) !u32 {
     if (val.len >= namebuf.len) return error.InvalidArg;
     @memcpy(namebuf[0..val.len], val);
     namebuf[val.len] = 0;
-    const pwd = c.getpwnam(namebuf[0..val.len :0]) orelse return error.InvalidArg;
-    return @intCast(@as(*c.struct_passwd, pwd).pw_uid);
+    if (c.getpwnam(namebuf[0..val.len :0])) |pwd| return @intCast(@as(*c.struct_passwd, pwd).pw_uid);
+    return getentLookup("passwd", val);
 }
 
 // Resolves the configured thread count to a concrete number of threads to
@@ -772,6 +798,34 @@ test "parseUser resolves a known username" {
 
 test "parseUser rejects an unknown username" {
     try std.testing.expectError(error.InvalidArg, parseUser("this-user-should-not-exist-12345"));
+}
+
+test "getentLookup resolves a known user via getent passwd" {
+    // Exercises the NSS fallback path directly. `getent` may not exist in
+    // this environment (e.g. macOS, or a container without it); skip if so
+    // rather than failing, the same way the libc-based tests above skip if
+    // there's no matching passwd/group entry.
+    const uid = c.getuid();
+    const pwd = c.getpwuid(uid) orelse return error.SkipZigTest;
+    const name = try allocator.dupeZ(u8, std.mem.span(@as(*c.struct_passwd, pwd).pw_name));
+    defer allocator.free(name);
+    const result = getentLookup("passwd", name) catch return error.SkipZigTest;
+    try std.testing.expectEqual(@as(u32, @intCast(uid)), result);
+}
+
+test "getentLookup resolves a known group via getent group" {
+    const gid = c.getgid();
+    const grp = c.getgrgid(gid) orelse return error.SkipZigTest;
+    const name = try allocator.dupeZ(u8, std.mem.span(@as(*c.struct_group, grp).gr_name));
+    defer allocator.free(name);
+    const result = getentLookup("group", name) catch return error.SkipZigTest;
+    try std.testing.expectEqual(@as(u32, @intCast(gid)), result);
+}
+
+test "getentLookup rejects an unknown name" {
+    // If getent itself isn't available, spawning fails and we still get
+    // InvalidArg, so this doesn't need a skip path like the tests above.
+    try std.testing.expectError(error.InvalidArg, getentLookup("passwd", "this-user-should-not-exist-12345"));
 }
 
 test "-u and --user parse a uid or username into config.only_user" {
