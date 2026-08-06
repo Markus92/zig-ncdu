@@ -1,12 +1,20 @@
-# Builds fully static Linux release binaries (amd64/x86_64 and arm64/aarch64)
-# and attaches them to a GitHub Release.
+# Builds Linux release binaries (amd64/x86_64 and arm64/aarch64) and
+# attaches them to a GitHub Release. Two variants are built for each arch:
 #
-# Static linking uses musl libc so the resulting binaries have no runtime
-# library dependencies at all -- they run unmodified on RHEL 9 and pretty
-# much any other Linux distro/kernel, regardless of the glibc/ncursesw/zstd
-# versions installed there. ncurses and zstd are built from source and
-# linked in statically, cross-compiled with Zig (no separate arm64 runner
-# needed).
+#   - musl: fully static (libc included), so the resulting binary has no
+#     runtime library dependencies at all -- it runs unmodified on RHEL 9
+#     and pretty much any other Linux distro/kernel. The trade-off: musl's
+#     getpwnam()/getgrnam() (used by -g/-u) only consult local
+#     /etc/passwd and /etc/group, falling back to spawning `getent` for
+#     LDAP/SSSD/NIS-backed accounts (see getentLookup() in src/main.zig).
+#   - glibc2.17: libc is dynamically linked (any glibc >= 2.17, i.e.
+#     RHEL/CentOS 7 and later, works), but ncursesw/zstd are still
+#     statically linked in, so the only runtime dependency is glibc itself.
+#     -g/-u/~user name resolution goes through glibc's real NSS stack
+#     directly (LDAP/SSSD/NIS included), no getent fallback needed.
+#
+# ncurses and zstd are built from source and linked in statically for both
+# variants, cross-compiled with Zig (no separate arm64 runner needed).
 #
 # Triggers:
 #   - Pushing a tag matching 'v*' (this includes the tag GitHub creates
@@ -68,7 +76,7 @@ jobs:
         run: zig build test --summary all
 
   build:
-    name: Build static ${{ matrix.arch }} binary
+    name: Build ${{ matrix.variant }} ${{ matrix.arch }} binary
     needs: test
     runs-on: ubuntu-latest
     strategy:
@@ -76,9 +84,17 @@ jobs:
       matrix:
         include:
           - arch: x86_64
+            variant: musl
             make_target: static-linux-x86_64
           - arch: aarch64
+            variant: musl
             make_target: static-linux-aarch64
+          - arch: x86_64
+            variant: glibc2.17
+            make_target: glibc-linux-x86_64
+          - arch: aarch64
+            variant: glibc2.17
+            make_target: glibc-linux-aarch64
     steps:
       - uses: actions/checkout@v4
         with:
@@ -102,13 +118,13 @@ jobs:
           mkdir zstd
           tar xzf /tmp/zstd.tar.gz -C zstd --strip-components=1
 
-      - name: Build static binary
+      - name: Build binary
         run: make ZIG=zig ${{ matrix.make_target }}
 
       - name: Verify binary
         run: |
           mkdir verify
-          tar xzf ncdu-*-linux-${{ matrix.arch }}.tar.gz -C verify
+          tar xzf ncdu-*.tar.gz -C verify
           file verify/ncdu
 
       - name: Run binary (native arch only)
@@ -118,15 +134,15 @@ jobs:
           verify/ncdu --help | head -5
 
       - name: Checksum
-        run: sha256sum ncdu-*-linux-${{ matrix.arch }}.tar.gz > ncdu-${{ matrix.arch }}.sha256
+        run: sha256sum ncdu-*.tar.gz > "ncdu-${{ matrix.arch }}-${{ matrix.variant }}.sha256"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ncdu-linux-${{ matrix.arch }}
+          name: ncdu-linux-${{ matrix.arch }}-${{ matrix.variant }}
           path: |
-            ncdu-*-linux-${{ matrix.arch }}.tar.gz
-            ncdu-${{ matrix.arch }}.sha256
+            ncdu-*.tar.gz
+            ncdu-${{ matrix.arch }}-${{ matrix.variant }}.sha256
           if-no-files-found: error
 
   release:

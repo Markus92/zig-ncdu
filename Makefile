@@ -57,6 +57,22 @@ dist:
 # - the zstd source tree has been extracted into zstd/
 # Would be nicer to do all this with the Zig build system, but no way am I
 # going to write build.zig's for these projects.
+#
+# The target stem ($*) is a Zig target triple, e.g. x86_64-linux-musl or
+# x86_64-linux-gnu.2.17 (Zig can link against an old glibc's symbol
+# versions without needing that glibc installed -- see the "gnu.X.Y"
+# suffix). Only *-musl targets are linked fully static: musl is designed
+# for it, but glibc's NSS (getpwnam/getgrnam/... for -g/-u, also used for
+# ~user path expansion) relies on dlopen()ing NSS modules at runtime,
+# which doesn't work reliably in a fully static glibc binary. So *-gnu.*
+# targets keep libc dynamic (any glibc >= the pinned version will do) and
+# only statically link in the private ncursesw/zstd builds -- the only
+# runtime dependency left is glibc itself.
+#
+# autoconf's config.sub doesn't understand Zig's "gnu.X.Y" version suffix,
+# so strip it (everything from the first '.' onward) before passing
+# the triple to ncurses' --host=; the unadorned prefix is what --target=
+# already resolves the same way when handed to zig cc/build-exe.
 static-%.tar.gz:
 	mkdir -p static-$*/nc static-$*/inst/pkg
 	cp -R zstd/lib static-$*/zstd
@@ -72,7 +88,7 @@ static-%.tar.gz:
 		--without-tests --disable-pc-files --without-pkg-config --without-shared --without-debug\
 		--without-gpm --without-sysmouse --enable-widec --with-default-terminfo-dir=/usr/share/terminfo\
 		--with-terminfo-dirs=/usr/share/terminfo:/lib/terminfo:/usr/local/share/terminfo\
-		--with-fallbacks="screen linux vt100 xterm xterm-256color" --host=$*\
+		--with-fallbacks="screen linux vt100 xterm xterm-256color" --host=`echo $* | cut -d. -f1`\
 		CC="${ZIG} cc --target=$*"\
 		LD="${ZIG} cc --target=$*"\
 		AR="${ZIG} ar" RANLIB="${ZIG} ranlib"\
@@ -83,7 +99,7 @@ static-%.tar.gz:
 	@# Alternative approach, bypassing zig-build
 	cd static-$* && ${ZIG} build-exe -target $*\
 		-Inc/include -Izstd -lc nc/lib/libncursesw.a zstd/libzstd.a\
-		--cache-dir zig-cache -static -fstrip -O ReleaseFast ../src/main.zig
+		--cache-dir zig-cache $(if $(findstring musl,$*),-static,) -fstrip -O ReleaseFast ../src/main.zig
 	@# My system's strip can't deal with arm binaries and zig doesn't wrap a strip alternative.
 	@# Whatever, just let it error for those.
 	strip -R .eh_frame -R .eh_frame_hdr static-$*/main || true
@@ -102,11 +118,27 @@ static-linux-aarch64: static-aarch64-linux-musl.tar.gz
 static-linux-arm: static-arm-linux-musleabi.tar.gz
 	mv $< ncdu-${NCDU_VERSION}-linux-arm.tar.gz
 
+# glibc >= 2.17 (RHEL/CentOS 7 and later, released 2014), libc dynamic,
+# everything else (ncursesw, zstd) statically linked in. Unlike the *-musl
+# builds above, -g/-u/~user name resolution goes through glibc's real NSS
+# stack directly (LDAP/SSSD/NIS included), no getent fallback needed.
+glibc-linux-x86_64: static-x86_64-linux-gnu.2.17.tar.gz
+	mv $< ncdu-${NCDU_VERSION}-linux-x86_64-glibc2.17.tar.gz
+
+glibc-linux-aarch64: static-aarch64-linux-gnu.2.17.tar.gz
+	mv $< ncdu-${NCDU_VERSION}-linux-aarch64-glibc2.17.tar.gz
+
+glibc:\
+	glibc-linux-x86_64 \
+	glibc-linux-aarch64
+
 static:\
 	static-linux-x86_64 \
 	static-linux-x86 \
 	static-linux-aarch64 \
-	static-linux-arm
+	static-linux-arm \
+	glibc-linux-x86_64 \
+	glibc-linux-aarch64
 
 test:
 	zig build test
