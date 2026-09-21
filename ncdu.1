@@ -23,6 +23,7 @@
 .Op Fl g , \-only\-group Ar group
 .Op Fl u , \-user Ar user
 .Op Fl a , \-access\-time Ar days
+.Op Fl \-inode , \-no\-inode
 .Op Fl t , \-threads Ar num
 .Op Fl c , \-compress , \-no\-compress
 .Op Fl \-compress\-level Ar num
@@ -245,6 +246,20 @@ ambiguous with the directory to scan.
 If
 .Ar days
 is omitted, a default cutoff of 366 days (i.e. more than a year) is used.
+.It Fl \-inode , \-no\-inode
+Count files instead of measuring disk usage or apparent size.
+Every non\-directory entry counts as exactly one file, regardless of its
+actual size; directories themselves are traversed as usual but don't add to
+the count.
+Hard links are not deduplicated in this mode: each link to a file is counted
+separately, as if it were an independent file.
+This interacts with
+.Fl g , \-only\-group ,
+.Fl u , \-user
+and
+.Fl a , \-access\-time
+exactly like normal disk usage counting does: only files that pass those
+filters are counted.
 .It Fl t , \-threads Ar num
 Number of threads to use when scanning the filesystem, defaults to the number
 of CPU cores available on the system.

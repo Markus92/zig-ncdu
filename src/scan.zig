@@ -159,10 +159,16 @@ pub fn statAt(parent: std.fs.Dir, name: [:0]const u8, follow: bool, symlink: ?*b
         };
     }
     if (symlink) |s| s.* = std.c.S.ISLNK(stat.mode);
+    // --inode counts entries instead of measuring disk usage, and (per its
+    // docs) doesn't bother deduplicating hard links: classifying as .link
+    // (which triggers hardlink-dedup elsewhere in the sink) is skipped
+    // entirely, and blocks/size become a flat "1" per entry instead of the
+    // real values, so the existing size-aggregation pipeline sums them into
+    // a plain file count without any other code needing to know about it.
     return sink.Stat{
-        .etype = if (std.c.S.ISDIR(stat.mode)) .dir else if (stat.nlink > 1) .link else if (!std.c.S.ISREG(stat.mode)) .nonreg else .reg,
-        .blocks = clamp(sink.Stat, .blocks, stat.blocks),
-        .size = clamp(sink.Stat, .size, stat.size),
+        .etype = if (std.c.S.ISDIR(stat.mode)) .dir else if (!main.config.count_inodes and stat.nlink > 1) .link else if (!std.c.S.ISREG(stat.mode)) .nonreg else .reg,
+        .blocks = if (main.config.count_inodes) 1 else clamp(sink.Stat, .blocks, stat.blocks),
+        .size = if (main.config.count_inodes) 1 else clamp(sink.Stat, .size, stat.size),
         .dev = truncate(sink.Stat, .dev, stat.dev),
         .ino = truncate(sink.Stat, .ino, stat.ino),
         .nlink = clamp(sink.Stat, .nlink, stat.nlink),
@@ -180,6 +186,36 @@ pub fn statAt(parent: std.fs.Dir, name: [:0]const u8, follow: bool, symlink: ?*b
             .mode = truncate(model.Ext, .mode, stat.mode),
         },
     };
+}
+
+test "statAt: --inode ignores hard links and flattens size/blocks to a count of 1" {
+    const saved = main.config.count_inodes;
+    defer main.config.count_inodes = saved;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.writeFile(.{ .sub_path = "a.txt", .data = "hello world" });
+    try std.posix.linkat(tmp.dir.fd, "a.txt", tmp.dir.fd, "a-hardlink.txt", 0);
+
+    // Normal mode: nlink > 1, so this is classified as a (deduped) hard link
+    // with its real byte size.
+    main.config.count_inodes = false;
+    const normal = try statAt(tmp.dir, "a.txt", false, null);
+    try std.testing.expectEqual(model.EType.link, normal.etype);
+    try std.testing.expectEqual(@as(u64, 11), normal.size);
+
+    // --inode mode: classified as a plain regular file (not deduped), and
+    // size/blocks are flattened to 1 regardless of the real file size.
+    main.config.count_inodes = true;
+    const counted = try statAt(tmp.dir, "a.txt", false, null);
+    try std.testing.expectEqual(model.EType.reg, counted.etype);
+    try std.testing.expectEqual(@as(u64, 1), counted.size);
+    try std.testing.expectEqual(@as(model.Blocks, 1), counted.blocks);
+
+    const counted2 = try statAt(tmp.dir, "a-hardlink.txt", false, null);
+    try std.testing.expectEqual(model.EType.reg, counted2.etype);
+    try std.testing.expectEqual(@as(u64, 1), counted2.size);
 }
 
 fn isCacheDir(dir: std.fs.Dir) bool {
@@ -339,7 +375,9 @@ const Thread = struct {
         // attributed to the filtered totals -- only its matching descendants
         // should. Blanking it here still lets the normal aggregation in the
         // sink roll up the (correctly filtered) sizes of its children.
-        if (ownerFiltered(stat.ext.gid, stat.ext.uid)) {
+        // In --inode mode, a directory's own entry never counts as a "file"
+        // either way, regardless of ownership.
+        if (ownerFiltered(stat.ext.gid, stat.ext.uid) or main.config.count_inodes) {
             stat.blocks = 0;
             stat.size = 0;
         }
@@ -407,8 +445,8 @@ pub fn scan(path: [:0]const u8) !void {
     // Same reasoning as in Thread.scanOne(): the scanned root itself is
     // always scanned regardless of ownership, but its own size shouldn't be
     // attributed to the --only-group/--user filtered totals unless it
-    // itself matches.
-    if (ownerFiltered(stat.ext.gid, stat.ext.uid)) {
+    // itself matches; in --inode mode it never counts as a "file" either way.
+    if (ownerFiltered(stat.ext.gid, stat.ext.uid) or main.config.count_inodes) {
         stat.blocks = 0;
         stat.size = 0;
     }

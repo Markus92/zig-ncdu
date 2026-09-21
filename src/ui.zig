@@ -521,6 +521,37 @@ pub fn addnum(bg: Bg, v: u64) void {
     bg.fg(.default);
 }
 
+// Print an item/file count in roughly the same width as addsize()'s output,
+// switching to k/M/G suffixes for large numbers instead of thousand
+// separators. Used for --show-itemcount and for the size column when
+// --inode is active.
+pub fn addcount(bg: Bg, v: u64) void {
+    bg.fg(.num);
+    if (v < 1000)
+        addprint("  {d:>4}", .{v})
+    else if (v < 10_000) {
+        addch(' ');
+        addnum(bg, v);
+    } else if (v < 100_000)
+        addnum(bg, v)
+    else if (v < 999_950) {
+        addstr(&util.fmt5dec(@intCast((v + 50) / 100)));
+        bg.fg(.default);
+        addch('k');
+    } else if (v < 999_950_000) {
+        addstr(&util.fmt5dec(@intCast((v + 50_000) / 100_000)));
+        bg.fg(.default);
+        addch('M');
+    } else {
+        bg.fg(.default);
+        addstr("  > ");
+        bg.fg(.num);
+        addch('1');
+        bg.fg(.default);
+        addch('G');
+    }
+}
+
 // Print a file mode, takes 10 columns
 pub fn addmode(mode: u32) void {
     addch(switch (mode & std.posix.S.IFMT) {

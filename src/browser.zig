@@ -269,11 +269,14 @@ const Row = struct {
         if (main.config.show_shared == .unique) shr = siz -| shr;
 
         ui.move(self.row, self.col);
-        ui.addsize(self.bg, siz);
+        // In --inode mode, siz/shr are already a plain file count (see
+        // util.blocksToSize()), so print them as a count instead of a
+        // byte-formatted size (which would append a misleading "B" unit).
+        if (main.config.count_inodes) ui.addcount(self.bg, siz) else ui.addsize(self.bg, siz);
         if (dir_has_shared and shr > 0 and main.config.show_shared != .off) {
             self.bg.fg(.flag);
             ui.addstr(if (main.config.show_shared == .unique) " U " else " S ");
-            ui.addsize(self.bg, shr);
+            if (main.config.count_inodes) ui.addcount(self.bg, shr) else ui.addsize(self.bg, shr);
         }
     }
 
@@ -332,30 +335,7 @@ const Row = struct {
         defer self.col += 7;
         const n = (if (self.item) |d| d.dir() orelse return else return).items;
         ui.move(self.row, self.col);
-        self.bg.fg(.num);
-        if (n < 1000)
-            ui.addprint("  {d:>4}", .{n})
-        else if (n < 10_000) {
-            ui.addch(' ');
-            ui.addnum(self.bg, n);
-        } else if (n < 100_000)
-            ui.addnum(self.bg, n)
-        else if (n < 999_950) {
-            ui.addstr(&util.fmt5dec(@intCast( (n + 50) / 100 )));
-            self.bg.fg(.default);
-            ui.addch('k');
-        } else if (n < 999_950_000) {
-            ui.addstr(&util.fmt5dec(@intCast( (n + 50_000) / 100_000 )));
-            self.bg.fg(.default);
-            ui.addch('M');
-        } else {
-            self.bg.fg(.default);
-            ui.addstr("  > ");
-            self.bg.fg(.num);
-            ui.addch('1');
-            self.bg.fg(.default);
-            ui.addch('G');
-        }
+        ui.addcount(self.bg, n);
     }
 
     fn mtime(self: *Self) void {
@@ -873,6 +853,15 @@ pub fn draw() void {
     if (dir_loading > 0) {
         ui.addstr(" Loading... ");
         ui.addnum(.hd, dir_loading);
+    } else if (main.config.count_inodes) {
+        // asize and dsize are both the same file count in this mode (see
+        // scan.statAt()), so there's nothing to toggle between; just show it once.
+        ui.style(.bold_hd);
+        ui.addstr("Files: ");
+        ui.addcount(.hd, dir_parent.entry.pack.blocks);
+        ui.style(.hd);
+        ui.addstr("   Items: ");
+        ui.addnum(.hd, dir_parent.items);
     } else {
         ui.addch(if (main.config.show_blocks) '*' else ' ');
         ui.style(if (main.config.show_blocks) .bold_hd else .hd);

@@ -83,6 +83,7 @@ pub const config = struct {
     pub var only_user: ?u32 = null;
     pub var access_time_days: ?u32 = null; // null = -a/--access-time not given (no filtering)
     pub var access_time_cutoff: ?i64 = null; // resolved unix timestamp, computed from access_time_days by main()
+    pub var count_inodes: bool = false; // --inode: count files instead of measuring disk usage/apparent size, ignoring hard links
     pub var threads: usize = 0; // 0 = not set explicitly, resolved to the CPU core count by resolveThreads()
     pub var complevel: u8 = 4;
     pub var compress: bool = false;
@@ -328,7 +329,7 @@ fn argConfig(args: *Args, opt: Args.Option, infile: bool) !void {
             const val = try args.arg();
             config.access_time_days = std.fmt.parseInt(u32, val, 10) catch try args.die("Invalid number of days for --access-time: {s}.\n", .{val});
         } else config.access_time_days = default_access_time_days;
-    } else if (opt.is("--exclude-caches")) config.exclude_caches = true else if (opt.is("--include-caches")) config.exclude_caches = false else if (opt.is("--exclude-kernfs")) config.exclude_kernfs = true else if (opt.is("--include-kernfs")) config.exclude_kernfs = false else if (opt.is("-c") or opt.is("--compress")) config.compress = true else if (opt.is("--no-compress")) config.compress = false else if (opt.is("--compress-level")) {
+    } else if (opt.is("--inode")) config.count_inodes = true else if (opt.is("--no-inode")) config.count_inodes = false else if (opt.is("--exclude-caches")) config.exclude_caches = true else if (opt.is("--include-caches")) config.exclude_caches = false else if (opt.is("--exclude-kernfs")) config.exclude_kernfs = true else if (opt.is("--include-kernfs")) config.exclude_kernfs = false else if (opt.is("-c") or opt.is("--compress")) config.compress = true else if (opt.is("--no-compress")) config.compress = false else if (opt.is("--compress-level")) {
         const val = try args.arg();
         const num = std.fmt.parseInt(u8, val, 10) catch try args.die("Invalid number for --compress-level: {s}.\n", .{val});
         if (num <= 0 or num > 20) try args.die("Invalid number for --compress-level: {s}.\n", .{val});
@@ -422,6 +423,7 @@ fn help() noreturn {
         \\  -g, --only-group GROUP     Only count disk usage of files owned by GROUP (name or gid)
         \\  -u, --user USER            Only count disk usage of files owned by USER (name or uid)
         \\  -a, --access-time[=DAYS]   Only count files not accessed in the last DAYS days (default: 366)
+        \\  --inode                    Count files instead of measuring disk usage (ignores hard links)
         \\  -t NUM                     Scan with NUM threads (default: number of CPU cores)
         \\
         \\Export options:
@@ -896,4 +898,18 @@ test "--access-time does not consume the following positional argument" {
     const next = (try a.next()).?;
     try std.testing.expectEqual(false, next.opt);
     try std.testing.expectEqualStrings("/some/dir", next.val);
+}
+
+test "--inode and --no-inode toggle config.count_inodes" {
+    const saved = config.count_inodes;
+    defer config.count_inodes = saved;
+
+    config.count_inodes = false;
+    var a = Args.init(&[_][:0]const u8{"--inode"});
+    try argConfig(&a, (try a.next()).?, false);
+    try std.testing.expectEqual(true, config.count_inodes);
+
+    var b = Args.init(&[_][:0]const u8{"--no-inode"});
+    try argConfig(&b, (try b.next()).?, false);
+    try std.testing.expectEqual(false, config.count_inodes);
 }

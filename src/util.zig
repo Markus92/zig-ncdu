@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 const std = @import("std");
+const main = @import("main.zig");
 const c = @import("c.zig").c;
 
 // Activate the process locale from the environment, then make sure a UTF-8
@@ -42,9 +43,28 @@ pub fn castTruncate(comptime T: type, x: anytype) T {
     return if (Xi.bits > Ti.bits) @truncate(nx) else nx;
 }
 
-// Multiplies by 512, saturating.
+// Multiplies by 512, saturating. In --inode mode, "blocks" is actually
+// already a plain file count (see scan.statAt()), not real disk blocks, so
+// there's nothing to convert -- this is what makes dsize match asize (both
+// the file count) throughout display and export code that calls this.
 pub fn blocksToSize(b: u64) u64 {
-    return b *| 512;
+    return if (main.config.count_inodes) b else b *| 512;
+}
+
+test "blocksToSize" {
+    const saved = main.config.count_inodes;
+    defer main.config.count_inodes = saved;
+
+    main.config.count_inodes = false;
+    try std.testing.expectEqual(@as(u64, 0), blocksToSize(0));
+    try std.testing.expectEqual(@as(u64, 512), blocksToSize(1));
+    try std.testing.expectEqual(@as(u64, 5120), blocksToSize(10));
+    try std.testing.expectEqual(std.math.maxInt(u64), blocksToSize(std.math.maxInt(u64))); // saturates
+
+    main.config.count_inodes = true;
+    try std.testing.expectEqual(@as(u64, 0), blocksToSize(0));
+    try std.testing.expectEqual(@as(u64, 1), blocksToSize(1));
+    try std.testing.expectEqual(@as(u64, 10), blocksToSize(10));
 }
 
 // Ensure the given arraylist buffer gets zero-terminated and returns a slice
