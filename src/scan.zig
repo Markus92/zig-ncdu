@@ -159,14 +159,15 @@ pub fn statAt(parent: std.fs.Dir, name: [:0]const u8, follow: bool, symlink: ?*b
         };
     }
     if (symlink) |s| s.* = std.c.S.ISLNK(stat.mode);
-    // --inode counts entries instead of measuring disk usage, and (per its
-    // docs) doesn't bother deduplicating hard links: classifying as .link
-    // (which triggers hardlink-dedup elsewhere in the sink) is skipped
-    // entirely, and blocks/size become a flat "1" per entry instead of the
-    // real values, so the existing size-aggregation pipeline sums them into
-    // a plain file count without any other code needing to know about it.
+    // --inode counts entries instead of measuring disk usage: blocks/size
+    // become a flat "1" per entry instead of the real values, so the
+    // existing size-aggregation pipeline sums them into a plain file count
+    // without any other code needing to know about it. Hard links are still
+    // classified as .link and go through the normal hardlink-dedup
+    // machinery (model.inodes), so a file with multiple links is counted
+    // once, same as it's only counted once towards disk usage normally.
     return sink.Stat{
-        .etype = if (std.c.S.ISDIR(stat.mode)) .dir else if (!main.config.count_inodes and stat.nlink > 1) .link else if (!std.c.S.ISREG(stat.mode)) .nonreg else .reg,
+        .etype = if (std.c.S.ISDIR(stat.mode)) .dir else if (stat.nlink > 1) .link else if (!std.c.S.ISREG(stat.mode)) .nonreg else .reg,
         .blocks = if (main.config.count_inodes) 1 else clamp(sink.Stat, .blocks, stat.blocks),
         .size = if (main.config.count_inodes) 1 else clamp(sink.Stat, .size, stat.size),
         .dev = truncate(sink.Stat, .dev, stat.dev),
@@ -188,7 +189,7 @@ pub fn statAt(parent: std.fs.Dir, name: [:0]const u8, follow: bool, symlink: ?*b
     };
 }
 
-test "statAt: --inode ignores hard links and flattens size/blocks to a count of 1" {
+test "statAt: --inode flattens size/blocks to a count of 1, still classifying hard links as .link" {
     const saved = main.config.count_inodes;
     defer main.config.count_inodes = saved;
 
@@ -197,6 +198,7 @@ test "statAt: --inode ignores hard links and flattens size/blocks to a count of 
 
     try tmp.dir.writeFile(.{ .sub_path = "a.txt", .data = "hello world" });
     try std.posix.linkat(tmp.dir.fd, "a.txt", tmp.dir.fd, "a-hardlink.txt", 0);
+    try tmp.dir.writeFile(.{ .sub_path = "b.txt", .data = "hi" });
 
     // Normal mode: nlink > 1, so this is classified as a (deduped) hard link
     // with its real byte size.
@@ -205,17 +207,23 @@ test "statAt: --inode ignores hard links and flattens size/blocks to a count of 
     try std.testing.expectEqual(model.EType.link, normal.etype);
     try std.testing.expectEqual(@as(u64, 11), normal.size);
 
-    // --inode mode: classified as a plain regular file (not deduped), and
+    // --inode mode: still classified as a hard link (so the existing
+    // model.inodes dedup still counts it once, not once per link), but
     // size/blocks are flattened to 1 regardless of the real file size.
     main.config.count_inodes = true;
     const counted = try statAt(tmp.dir, "a.txt", false, null);
-    try std.testing.expectEqual(model.EType.reg, counted.etype);
+    try std.testing.expectEqual(model.EType.link, counted.etype);
     try std.testing.expectEqual(@as(u64, 1), counted.size);
     try std.testing.expectEqual(@as(model.Blocks, 1), counted.blocks);
 
     const counted2 = try statAt(tmp.dir, "a-hardlink.txt", false, null);
-    try std.testing.expectEqual(model.EType.reg, counted2.etype);
+    try std.testing.expectEqual(model.EType.link, counted2.etype);
     try std.testing.expectEqual(@as(u64, 1), counted2.size);
+
+    // A file with only one link is unaffected: still a plain .reg entry.
+    const single = try statAt(tmp.dir, "b.txt", false, null);
+    try std.testing.expectEqual(model.EType.reg, single.etype);
+    try std.testing.expectEqual(@as(u64, 1), single.size);
 }
 
 fn isCacheDir(dir: std.fs.Dir) bool {

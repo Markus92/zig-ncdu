@@ -16,9 +16,9 @@
 	  system's `getent`, which correctly consults /etc/nsswitch.conf, when
 	  the direct lookup fails.
 	- Add --inode/--no-inode option to count files instead of measuring
-	  disk usage/apparent size. Hard links are not deduplicated in this
-	  mode (each link counts separately); -g/--only-group, -u/--user and
-	  -a/--access-time keep filtering normally.
+	  disk usage/apparent size. Hard links are counted once, same as their
+	  disk usage; -g/--only-group, -u/--user and -a/--access-time keep
+	  filtering normally.
 
 2.9.3-BioHPC - 2026-07-29
 	- BioHPC-modified build, based on upstream 2.9.2

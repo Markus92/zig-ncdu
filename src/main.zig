@@ -423,7 +423,7 @@ fn help() noreturn {
         \\  -g, --only-group GROUP     Only count disk usage of files owned by GROUP (name or gid)
         \\  -u, --user USER            Only count disk usage of files owned by USER (name or uid)
         \\  -a, --access-time[=DAYS]   Only count files not accessed in the last DAYS days (default: 366)
-        \\  --inode                    Count files instead of measuring disk usage (ignores hard links)
+        \\  --inode                    Count files instead of measuring disk usage
         \\  -t NUM                     Scan with NUM threads (default: number of CPU cores)
         \\
         \\Export options:

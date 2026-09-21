@@ -251,8 +251,8 @@ Count files instead of measuring disk usage or apparent size.
 Every non\-directory entry counts as exactly one file, regardless of its
 actual size; directories themselves are traversed as usual but don't add to
 the count.
-Hard links are not deduplicated in this mode: each link to a file is counted
-separately, as if it were an independent file.
+Hard links are counted only once, the same way their disk usage is only
+counted once in the default mode.
 This interacts with
 .Fl g , \-only\-group ,
 .Fl u , \-user
