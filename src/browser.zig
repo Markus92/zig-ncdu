@@ -665,6 +665,7 @@ const help = struct {
                   "t", "Toggle dirs before files when sorting",
                   "g", "Show percentage and/or graph",
                   "u", "Show/hide hard link shared sizes",
+                  "v", "Cycle color scheme (off/dark/dark background)",
                   "a", "Toggle between apparent size and disk usage",
                   "c", "Toggle display of child item counts",
                   "m", "Toggle display of latest mtime (-e flag)",
@@ -1044,6 +1045,10 @@ pub fn keyInput(ch: i32) void {
             .off => .shared,
             .shared => .unique,
             .unique => .off,
+        },
+        'v' => {
+            main.config.ui_color = main.config.ui_color.next();
+            ui.initColorPairs();
         },
 
         else => _ = keyInputSelection(ch, &cursor_idx, dir_items.items.len, ui.rows -| 3),

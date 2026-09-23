@@ -361,9 +361,18 @@ pub fn init() void {
 
     _ = c.start_color();
     _ = c.use_default_colors();
-    for (styles, 0..) |s, i| _ = c.init_pair(@as(i16, @intCast(i+1)), s.style().fg, s.style().bg);
+    initColorPairs();
     _ = c.bkgd(@intCast(c.COLOR_PAIR(@intFromEnum(Style.default)+1)));
     inited = true;
+}
+
+// (Re-)associates every Style with its ncurses color pair for the currently
+// configured main.config.ui_color. Called once from init(), and again
+// whenever ui_color changes at runtime (e.g. the 'v' key), since attr_set()
+// only looks up the attr (bold/reverse/...) dynamically -- the actual fg/bg
+// colors are fixed to a color pair number here and don't otherwise update.
+pub fn initColorPairs() void {
+    for (styles, 0..) |s, i| _ = c.init_pair(@as(i16, @intCast(i+1)), s.style().fg, s.style().bg);
 }
 
 pub fn deinit() void {

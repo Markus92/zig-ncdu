@@ -73,6 +73,17 @@ pub const panic = std.debug.FullPanic(struct {
 pub const config = struct {
     pub const SortCol = enum { name, blocks, size, items, mtime };
     pub const SortOrder = enum { asc, desc };
+    pub const UiColor = enum {
+        off, dark, darkbg,
+
+        pub fn next(self: UiColor) UiColor {
+            return switch (self) {
+                .off => .dark,
+                .dark => .darkbg,
+                .darkbg => .off,
+            };
+        }
+    };
 
     pub var same_fs: bool = false;
     pub var extended: bool = false;
@@ -93,7 +104,7 @@ pub const config = struct {
     pub var scan_ui: ?enum { none, line, full } = null;
     pub var si: bool = false;
     pub var nc_tty: bool = false;
-    pub var ui_color: enum { off, dark, darkbg } = .off;
+    pub var ui_color: UiColor = .off;
     pub var thousands_sep: []const u8 = ",";
 
     pub var show_hidden: bool = true;
@@ -912,4 +923,10 @@ test "--inode and --no-inode toggle config.count_inodes" {
     var b = Args.init(&[_][:0]const u8{"--no-inode"});
     try argConfig(&b, (try b.next()).?, false);
     try std.testing.expectEqual(false, config.count_inodes);
+}
+
+test "UiColor.next() cycles through all schemes and wraps around" {
+    try std.testing.expectEqual(config.UiColor.dark, config.UiColor.off.next());
+    try std.testing.expectEqual(config.UiColor.darkbg, config.UiColor.dark.next());
+    try std.testing.expectEqual(config.UiColor.off, config.UiColor.darkbg.next());
 }

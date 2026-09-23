@@ -5,6 +5,8 @@
 	- BioHPC-modified build, based on upstream 2.9.2
 	- Add BioHPC support contact (biohpc-help@utsouthwestern.edu) to the
 	  About tab of the in-app help screen
+	- Add 'v' key to cycle through color schemes (off/dark/dark background)
+	  interactively, same as --color offers at startup
 
 2.9.4-BioHPC - 2026-08-04
 	- BioHPC-modified build, based on upstream 2.9.2
