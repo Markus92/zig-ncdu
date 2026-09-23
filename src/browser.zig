@@ -753,6 +753,7 @@ const help = struct {
         ui.style(.default);
         box.move(9, 11); ui.addstr("Written by Yorhel <projects@yorhel.nl>");
         box.move(10,16); ui.addstr("https://dev.yorhel.nl/ncdu");
+        box.move(12,11); ui.addstr("BioHPC support: biohpc-help@utsouthwestern.edu");
     }
 
     fn draw() void {

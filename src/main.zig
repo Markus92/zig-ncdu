@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Yorhel <projects@yorhel.nl>
 // SPDX-License-Identifier: MIT
 
-pub const program_version = "2.9.4-BioHPC";
+pub const program_version = "2.9.5-BioHPC";
 
 const std = @import("std");
 const model = @import("model.zig");
