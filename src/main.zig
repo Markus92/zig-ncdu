@@ -74,7 +74,9 @@ pub const config = struct {
     pub const SortCol = enum { name, blocks, size, items, mtime };
     pub const SortOrder = enum { asc, desc };
     pub const UiColor = enum {
-        off, dark, darkbg,
+        off,
+        dark,
+        darkbg,
 
         pub fn next(self: UiColor) UiColor {
             return switch (self) {

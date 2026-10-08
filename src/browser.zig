@@ -50,16 +50,13 @@ const View = struct {
 
     // Update cursor_hash and save the current view to the hash table.
     fn save(self: *@This()) void {
-        self.cursor_hash = if (dir_items.items.len == 0) 0
-                           else if (dir_items.items[cursor_idx]) |e| e.nameHash()
-                           else 0;
+        self.cursor_hash = if (dir_items.items.len == 0) 0 else if (dir_items.items[cursor_idx]) |e| e.nameHash() else 0;
         opened_dir_views.put(dirHash(), self.*) catch {};
     }
 
     // Should be called after dir_parent or dir_items has changed, will load the last saved view and find the proper cursor_idx.
     fn load(self: *@This(), sel: u64) void {
-        if (opened_dir_views.get(dirHash())) |v| self.* = v
-        else self.* = @This(){};
+        if (opened_dir_views.get(dirHash())) |v| self.* = v else self.* = @This(){};
         cursor_idx = 0;
         for (dir_items.items, 0..) |e, i| {
             const h = if (e) |x| x.nameHash() else 0;
@@ -113,8 +110,7 @@ fn sortLt(_: void, ap: ?*model.Entry, bp: ?*model.Entry) bool {
 
     const an = (if (main.config.sort_order == .asc) a else b).name();
     const bn = (if (main.config.sort_order == .asc) b else a).name();
-    return if (main.config.sort_natural) util.strnatcmp(an, bn) == .lt
-           else std.mem.lessThan(u8, an, bn);
+    return if (main.config.sort_natural) util.strnatcmp(an, bn) == .lt else std.mem.lessThan(u8, an, bn);
 }
 
 // Should be called when:
@@ -150,8 +146,7 @@ pub fn loadDir(next_sel: u64) void {
     var ref = dir_parent.sub;
     while (!ref.isNull()) {
         const e =
-            if (main.config.binreader) bin_reader.get(ref.ref, dir_alloc.allocator())
-            else ref.ptr.?;
+            if (main.config.binreader) bin_reader.get(ref.ref, dir_alloc.allocator()) else ref.ptr.?;
 
         if (e.pack.blocks > dir_max_blocks) dir_max_blocks = e.pack.blocks;
         if (e.size > dir_max_size) dir_max_size = e.size;
@@ -161,7 +156,7 @@ pub fn loadDir(next_sel: u64) void {
                 else => false,
             };
             const name = e.name();
-            break :blk !excl and name[0] != '.' and name[name.len-1] != '~';
+            break :blk !excl and name[0] != '.' and name[name.len - 1] != '~';
         };
         if (shown) {
             dir_items.append(main.allocator, e) catch unreachable;
@@ -179,7 +174,6 @@ pub fn loadDir(next_sel: u64) void {
     sortDir(next_sel);
     dir_loading = 0;
 }
-
 
 pub fn initRoot() void {
     if (main.config.binreader) {
@@ -217,18 +211,16 @@ fn enterParent() void {
     std.debug.assert(dir_parents.items.len > 1);
 
     _ = dir_parents.pop();
-    const p = dir_parents.items[dir_parents.items.len-1];
+    const p = dir_parents.items[dir_parents.items.len - 1];
     if (main.config.binreader) {
         dir_parent.entry.destroy(main.allocator);
         dir_parent = bin_reader.get(p.ref, main.allocator).dir() orelse unreachable;
-    } else
-        dir_parent = p.ptr.?.dir() orelse unreachable;
+    } else dir_parent = p.ptr.?.dir() orelse unreachable;
 
     const newpath = main.allocator.dupeZ(u8, std.fs.path.dirname(dir_path) orelse unreachable) catch unreachable;
     main.allocator.free(dir_path);
     dir_path = newpath;
 }
-
 
 const Row = struct {
     row: u32,
@@ -242,10 +234,7 @@ const Row = struct {
         defer self.col += 2;
         const item = self.item orelse return;
         const ch: u7 = switch (item.pack.etype) {
-            .dir => if (item.dir().?.pack.err) '!'
-                    else if (item.dir().?.pack.suberr) '.'
-                    else if (item.dir().?.sub.isNull()) 'e'
-                    else return,
+            .dir => if (item.dir().?.pack.err) '!' else if (item.dir().?.pack.suberr) '.' else if (item.dir().?.sub.isNull()) 'e' else return,
             .link => 'H',
             .pattern => '<',
             .otherfs => '>',
@@ -283,11 +272,8 @@ const Row = struct {
     fn graph(self: *Self) void {
         if ((!main.config.show_graph and !main.config.show_percent) or self.col + 20 > ui.cols) return;
 
-        const bar_size = @max(ui.cols/7, 10);
-        defer self.col += 3
-            + (if (main.config.show_graph) bar_size else 0)
-            + (if (main.config.show_percent) @as(u32, 6) else 0)
-            + (if (main.config.show_graph and main.config.show_percent) @as(u32, 1) else 0);
+        const bar_size = @max(ui.cols / 7, 10);
+        defer self.col += 3 + (if (main.config.show_graph) bar_size else 0) + (if (main.config.show_percent) @as(u32, 6) else 0) + (if (main.config.show_graph and main.config.show_percent) @as(u32, 1) else 0);
         const item = self.item orelse return;
 
         ui.move(self.row, self.col);
@@ -295,13 +281,13 @@ const Row = struct {
         ui.addch('[');
         if (main.config.show_percent) {
             self.bg.fg(.num);
-            var num   : u64 = if (main.config.show_blocks)             item.pack.blocks else             item.size;
-            var denom : u64 = if (main.config.show_blocks) dir_parent.entry.pack.blocks else dir_parent.entry.size;
-            if (num > (1<<54)) { // avoid overflow
+            var num: u64 = if (main.config.show_blocks) item.pack.blocks else item.size;
+            var denom: u64 = if (main.config.show_blocks) dir_parent.entry.pack.blocks else dir_parent.entry.size;
+            if (num > (1 << 54)) { // avoid overflow
                 num >>= 10;
                 denom >>= 10;
             }
-            ui.addstr(&util.fmt5dec(@intCast( @min(1000, (num * 1000 + (denom / 2)) / @max(1, denom) ))));
+            ui.addstr(&util.fmt5dec(@intCast(@min(1000, (num * 1000 + (denom / 2)) / @max(1, denom)))));
             self.bg.fg(.default);
             ui.addch('%');
         }
@@ -313,14 +299,14 @@ const Row = struct {
                 max *= bar_size;
                 num *= bar_size;
             }
-           
+
             const perblock = std.math.divFloor(u64, max, bar_size) catch unreachable;
             self.bg.fg(.graph);
             for (0..bar_size) |_| {
                 const frac = @min(@as(usize, 8), (num *| 8) / perblock);
                 ui.addstr(switch (main.config.graph_style) {
-                    .hash  => ([_][:0]const u8{ " ", " ", " ", " ", " ", " ", " ", " ", "#" })[frac],
-                    .half  => ([_][:0]const u8{ " ", " ", " ", " ", "▌", "▌", "▌", "▌", "█" })[frac],
+                    .hash => ([_][:0]const u8{ " ", " ", " ", " ", " ", " ", " ", " ", "#" })[frac],
+                    .half => ([_][:0]const u8{ " ", " ", " ", " ", "▌", "▌", "▌", "▌", "█" })[frac],
                     .eighth => ([_][:0]const u8{ " ", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█" })[frac],
                 });
                 num -|= perblock;
@@ -341,7 +327,7 @@ const Row = struct {
     fn mtime(self: *Self) void {
         if (!main.config.show_mtime or self.col + 37 > ui.cols) return;
         defer self.col += 27;
-        ui.move(self.row, self.col+1);
+        ui.move(self.row, self.col + 1);
         const ext = if (self.item) |e| e.ext() else dir_parent.entry.ext();
         if (ext) |e| {
             if (e.pack.hasmtime) {
@@ -447,7 +433,9 @@ const info = struct {
                     break;
             }
             std.sort.heap(*model.Link, list.items, {}, lt);
-            for (list.items, 0..) |n,i| if (&n.entry == e) { links_idx = i; };
+            for (list.items, 0..) |n, i| if (&n.entry == e) {
+                links_idx = i;
+            };
             links = list;
         }
     }
@@ -464,8 +452,8 @@ const info = struct {
 
         for (0..numrows) |i| {
             if (i + links_top >= links.?.items.len) break;
-            const e = links.?.items[i+links_top];
-            ui.style(if (i+links_top == links_idx) .sel else .default);
+            const e = links.?.items[i + links_top];
+            ui.style(if (i + links_top == links_idx) .sel else .default);
             box.move(row.*, 2);
             ui.addch(if (&e.entry == entry) '*' else ' ');
             const path = e.path(false);
@@ -474,8 +462,8 @@ const info = struct {
             row.* += 1;
         }
         ui.style(.default);
-        box.move(rows-2, 4);
-        ui.addprint("{:>3}/{}", .{ links_idx+1, links.?.items.len });
+        box.move(rows - 2, 4);
+        ui.addprint("{:>3}/{}", .{ links_idx + 1, links.?.items.len });
     }
 
     fn drawSizeRow(box: ui.Box, row: *u32, label: [:0]const u8, size: u64) void {
@@ -504,7 +492,7 @@ const info = struct {
         ui.style(.bold);
         ui.addstr("Name: ");
         ui.style(.default);
-        ui.addstr(ui.shorten(ui.toUtf8(e.name()), cols-11));
+        ui.addstr(ui.shorten(ui.toUtf8(e.name()), cols - 11));
         row.* += 1;
 
         // Type / Mode+UID+GID
@@ -521,13 +509,13 @@ const info = struct {
             if (ext.pack.hasuid) {
                 ui.addstr("  UID: ");
                 ui.style(.default);
-                ui.addstr(std.fmt.bufPrintZ(&buf, "{d:<6}", .{ ext.uid }) catch unreachable);
+                ui.addstr(std.fmt.bufPrintZ(&buf, "{d:<6}", .{ext.uid}) catch unreachable);
                 ui.style(.bold);
             }
             if (ext.pack.hasgid) {
                 ui.addstr(" GID: ");
                 ui.style(.default);
-                ui.addstr(std.fmt.bufPrintZ(&buf, "{d:<6}", .{ ext.gid }) catch unreachable);
+                ui.addstr(std.fmt.bufPrintZ(&buf, "{d:<6}", .{ext.gid}) catch unreachable);
             }
         } else {
             ui.addstr("Type: ");
@@ -576,7 +564,7 @@ const info = struct {
             ui.addstr("  Inode: ");
             ui.style(.default);
             var buf: [32]u8 = undefined;
-            ui.addstr(std.fmt.bufPrintZ(&buf, "{}", .{ l.ino }) catch unreachable);
+            ui.addstr(std.fmt.bufPrintZ(&buf, "{}", .{l.ino}) catch unreachable);
             row.* += 1;
         }
     }
@@ -588,22 +576,19 @@ const info = struct {
         // for each item. Think it's better to have a dynamic height based on
         // terminal size and scroll if the content doesn't fit.
         const rows = 5 // border + padding + close message
-            + if (tab == .links and !main.config.binreader) 8 else
-              4 // name + type + disk usage + apparent size
+            + if (tab == .links and !main.config.binreader) 8 else 4 // name + type + disk usage + apparent size
             + (if (e.ext() != null) @as(u32, 1) else 0) // last modified
             + (if (e.link() != null) @as(u32, 1) else 0) // link count
             + (if (e.dir()) |d| 1 // sub items
-                    + (if (d.shared_size > 0) @as(u32, 2) else 0)
-                    + (if (d.shared_blocks > 0) @as(u32, 2) else 0)
-                else 0);
+                + (if (d.shared_size > 0) @as(u32, 2) else 0) + (if (d.shared_blocks > 0) @as(u32, 2) else 0) else 0);
         const cols = 60; // TODO: dynamic width?
         const box = ui.Box.create(rows, cols, "Item info");
         var row: u32 = 2;
 
         // Tabs
         if (e.pack.etype == .link) {
-            box.tab(cols-19, tab == .info, 1, "Info");
-            box.tab(cols-10, tab == .links, 2, "Links");
+            box.tab(cols - 19, tab == .info, 1, "Info");
+            box.tab(cols - 10, tab == .links, 2, "Links");
         }
 
         switch (tab) {
@@ -612,7 +597,7 @@ const info = struct {
         }
 
         // "Press i to close this window"
-        box.move(rows-2, cols-30);
+        box.move(rows - 2, cols - 30);
         ui.style(.default);
         ui.addstr("Press ");
         ui.style(.key);
@@ -624,8 +609,14 @@ const info = struct {
     fn keyInput(ch: i32) bool {
         if (entry.?.pack.etype == .link) {
             switch (ch) {
-                '1', 'h', c.KEY_LEFT => { set(entry, .info); return true; },
-                '2', 'l', c.KEY_RIGHT => { set(entry, .links); return true; },
+                '1', 'h', c.KEY_LEFT => {
+                    set(entry, .info);
+                    return true;
+                },
+                '2', 'l', c.KEY_RIGHT => {
+                    set(entry, .links);
+                    return true;
+                },
                 else => {},
             }
         }
@@ -652,29 +643,7 @@ const info = struct {
 };
 
 const help = struct {
-    const keys = [_][:0]const u8{
-              "up, k", "Move cursor up",
-            "down, j", "Move cursor down",
-        "right/enter", "Open selected directory",
-         "left, <, h", "Open parent directory",
-                  "n", "Sort by name (ascending/descending)",
-                  "s", "Sort by size (ascending/descending)",
-                  "C", "Sort by items (ascending/descending)",
-                  "M", "Sort by mtime (-e flag)",
-                  "d", "Delete selected file or directory",
-                  "t", "Toggle dirs before files when sorting",
-                  "g", "Show percentage and/or graph",
-                  "u", "Show/hide hard link shared sizes",
-                  "v", "Cycle color scheme (off/dark/dark background)",
-                  "a", "Toggle between apparent size and disk usage",
-                  "c", "Toggle display of child item counts",
-                  "m", "Toggle display of latest mtime (-e flag)",
-                  "e", "Show/hide hidden or excluded files",
-                  "i", "Show information about selected item",
-                  "r", "Recalculate the current directory",
-                  "b", "Spawn shell in current directory",
-                  "q", "Quit ncdu"
-    };
+    const keys = [_][:0]const u8{ "up, k", "Move cursor up", "down, j", "Move cursor down", "right/enter", "Open selected directory", "left, <, h", "Open parent directory", "n", "Sort by name (ascending/descending)", "s", "Sort by size (ascending/descending)", "C", "Sort by items (ascending/descending)", "M", "Sort by mtime (-e flag)", "d", "Delete selected file or directory", "t", "Toggle dirs before files when sorting", "g", "Show percentage and/or graph", "u", "Show/hide hard link shared sizes", "v", "Cycle color scheme (off/dark/dark background)", "a", "Toggle between apparent size and disk usage", "c", "Toggle display of child item counts", "m", "Toggle display of latest mtime (-e flag)", "e", "Show/hide hidden or excluded files", "i", "Show information about selected item", "r", "Recalculate the current directory", "b", "Spawn shell in current directory", "q", "Quit ncdu" };
     const keylines = 10;
 
     const flags = [_][:0]const u8{
@@ -690,11 +659,11 @@ const help = struct {
 
     // It's kinda ugly, but for nostalgia's sake...
     const logo = [_]u29{
-         0b11111100111110000001100110011,
-         0b11001100110000000001100110011,
-         0b11001100110000011111100110011,
-         0b11001100110000011001100110011,
-         0b11001100111110011111100111111,
+        0b11111100111110000001100110011,
+        0b11001100110000000001100110011,
+        0b11001100110000011111100110011,
+        0b11001100110000011001100110011,
+        0b11001100111110011111100111111,
     };
 
     var tab: enum { keys, flags, about } = .keys;
@@ -702,17 +671,17 @@ const help = struct {
 
     fn drawKeys(box: ui.Box) void {
         var line: u32 = 1;
-        var i = offset*2;
-        while (i < (offset + keylines)*2) : (i += 2) {
+        var i = offset * 2;
+        while (i < (offset + keylines) * 2) : (i += 2) {
             line += 1;
             box.move(line, 13 - @as(u32, @intCast(keys[i].len)));
             ui.style(.key);
             ui.addstr(keys[i]);
             ui.style(.default);
             ui.addch(' ');
-            ui.addstr(keys[i+1]);
+            ui.addstr(keys[i + 1]);
         }
-        if (offset < keys.len/2-keylines) {
+        if (offset < keys.len / 2 - keylines) {
             box.move(12, 25);
             ui.addstr("-- more --");
         }
@@ -727,34 +696,41 @@ const help = struct {
         ui.addstr("The X is only present in the following cases:");
         var i: u32 = 0;
         while (i < flags.len) : (i += 2) {
-            box.move(i/2+5, 4);
+            box.move(i / 2 + 5, 4);
             ui.style(.flag);
             ui.addstr(flags[i]);
             ui.style(.default);
             ui.addch(' ');
-            ui.addstr(flags[i+1]);
+            ui.addstr(flags[i + 1]);
         }
     }
 
     fn drawAbout(box: ui.Box) void {
         for (logo, 0..) |s, n| {
-            box.move(@as(u32, @intCast(n+3)), 12);
+            box.move(@as(u32, @intCast(n + 3)), 12);
             var i: u5 = 28;
             while (i != 0) : (i -= 1) {
-                ui.style(if (s & (@as(u29,1)<<i) > 0) .sel else .default);
+                ui.style(if (s & (@as(u29, 1) << i) > 0) .sel else .default);
                 ui.addch(' ');
             }
         }
         ui.style(.default);
-        box.move(3, 43); ui.addstr("NCurses");
-        box.move(4, 43); ui.addstr("Disk");
-        box.move(5, 43); ui.addstr("Usage");
+        box.move(3, 43);
+        ui.addstr("NCurses");
+        box.move(4, 43);
+        ui.addstr("Disk");
+        box.move(5, 43);
+        ui.addstr("Usage");
         ui.style(.num);
-        box.move(7, 43); ui.addstr(main.program_version);
+        box.move(7, 43);
+        ui.addstr(main.program_version);
         ui.style(.default);
-        box.move(9, 11); ui.addstr("Written by Yorhel <projects@yorhel.nl>");
-        box.move(10,16); ui.addstr("https://dev.yorhel.nl/ncdu");
-        box.move(12,11); ui.addstr("BioHPC support: biohpc-help@utsouthwestern.edu");
+        box.move(9, 11);
+        ui.addstr("Written by Yorhel <projects@yorhel.nl>");
+        box.move(10, 16);
+        ui.addstr("https://dev.yorhel.nl/ncdu");
+        box.move(12, 11);
+        ui.addstr("BioHPC support: biohpc-help@utsouthwestern.edu");
     }
 
     fn draw() void {
@@ -779,7 +755,9 @@ const help = struct {
 
     fn keyInput(ch: i32) void {
         const ctab = tab;
-        defer if (ctab != tab or state != .help) { offset = 0; };
+        defer if (ctab != tab or state != .help) {
+            offset = 0;
+        };
         switch (ch) {
             '1' => tab = .keys,
             '2' => tab = .flags,
@@ -788,13 +766,15 @@ const help = struct {
             'l', c.KEY_RIGHT => tab = if (tab == .keys) .flags else .about,
             'j', ' ', c.KEY_DOWN, c.KEY_NPAGE => {
                 const max = switch (tab) {
-                    .keys => keys.len/2 - keylines,
+                    .keys => keys.len / 2 - keylines,
                     else => @as(u32, 0),
                 };
                 if (offset < max)
                     offset += 1;
             },
-            'k', c.KEY_UP, c.KEY_PPAGE => { if (offset > 0) offset -= 1; },
+            'k', c.KEY_UP, c.KEY_PPAGE => {
+                if (offset > 0) offset -= 1;
+            },
             else => state = .main,
         }
     }
@@ -802,9 +782,9 @@ const help = struct {
 
 pub fn draw() void {
     ui.style(.hd);
-    ui.move(0,0);
+    ui.move(0, 0);
     ui.hline(' ', ui.cols);
-    ui.move(0,0);
+    ui.move(0, 0);
     ui.addstr("ncdu " ++ main.program_version ++ " ~ Use the arrow keys to navigate, press ");
     ui.style(.key_hd);
     ui.addch('?');
@@ -822,9 +802,9 @@ pub fn draw() void {
     }
 
     ui.style(.default);
-    ui.move(1,0);
+    ui.move(1, 0);
     ui.hline('-', ui.cols);
-    ui.move(1,3);
+    ui.move(1, 3);
     ui.addch(' ');
     ui.style(.dir);
     ui.addstr(ui.shorten(ui.toUtf8(dir_path), ui.cols -| 5));
@@ -838,20 +818,20 @@ pub fn draw() void {
     var i: u32 = if (dir_loading > 0) numrows else 0;
     var sel_row: u32 = 0;
     while (i < numrows) : (i += 1) {
-        if (i+current_view.top >= dir_items.items.len) break;
+        if (i + current_view.top >= dir_items.items.len) break;
         var row = Row{
-            .row = i+2,
-            .item = dir_items.items[i+current_view.top],
-            .bg = if (i+current_view.top == cursor_idx) .sel else .default,
+            .row = i + 2,
+            .item = dir_items.items[i + current_view.top],
+            .bg = if (i + current_view.top == cursor_idx) .sel else .default,
         };
-        if (row.bg == .sel) sel_row = i+2;
+        if (row.bg == .sel) sel_row = i + 2;
         row.draw();
     }
 
     ui.style(.hd);
-    ui.move(ui.rows-1, 0);
+    ui.move(ui.rows - 1, 0);
     ui.hline(' ', ui.cols);
-    ui.move(ui.rows-1, 0);
+    ui.move(ui.rows - 1, 0);
     if (dir_loading > 0) {
         ui.addstr(" Loading... ");
         ui.addnum(.hd, dir_loading);
@@ -892,16 +872,14 @@ pub fn draw() void {
             ui.addstr(ln);
             i += 1;
         }
-        box.move(i+1, 33);
+        box.move(i + 1, 33);
         ui.addstr("Press any key to continue");
     }
     if (sel_row > 0) ui.move(sel_row, 0);
 }
 
 fn sortToggle(col: main.config.SortCol, default_order: main.config.SortOrder) void {
-    if (main.config.sort_col != col) main.config.sort_order = default_order
-    else if (main.config.sort_order == .asc) main.config.sort_order = .desc
-    else main.config.sort_order = .asc;
+    if (main.config.sort_col != col) main.config.sort_order = default_order else if (main.config.sort_order == .asc) main.config.sort_order = .desc else main.config.sort_order = .asc;
     main.config.sort_col = col;
     sortDir(0);
 }
@@ -909,7 +887,7 @@ fn sortToggle(col: main.config.SortCol, default_order: main.config.SortOrder) vo
 fn keyInputSelection(ch: i32, idx: *usize, len: usize, page: u32) bool {
     switch (ch) {
         'j', c.KEY_DOWN => {
-            if (idx.*+1 < len) idx.* += 1;
+            if (idx.* + 1 < len) idx.* += 1;
         },
         'k', c.KEY_UP => {
             if (idx.* > 0) idx.* -= 1;
@@ -941,14 +919,16 @@ pub fn keyInput(ch: i32) void {
     }
 
     switch (ch) {
-        'q' => if (main.config.confirm_quit) { state = .quit; } else ui.quit(),
+        'q' => if (main.config.confirm_quit) {
+            state = .quit;
+        } else ui.quit(),
         '?' => state = .help,
         'i' => if (dir_items.items.len > 0) info.set(dir_items.items[cursor_idx], .info),
         'r' => {
             if (main.config.binreader)
                 message = &.{"Refresh feature is not available when reading from file."}
             else if (!main.config.can_refresh.? and main.config.imported)
-                message = &.{"Refresh feature disabled.", "Re-run with --enable-refresh to enable this option."}
+                message = &.{ "Refresh feature disabled.", "Re-run with --enable-refresh to enable this option." }
             else if (!main.config.can_refresh.?)
                 message = &.{"Directory refresh feature disabled."}
             else {
@@ -959,24 +939,21 @@ pub fn keyInput(ch: i32) void {
         },
         'b' => {
             if (!main.config.can_shell.?)
-                message = &.{"Shell feature disabled.", "Re-run with --enable-shell to enable this option."}
+                message = &.{ "Shell feature disabled.", "Re-run with --enable-shell to enable this option." }
             else
                 main.state = .shell;
         },
         'd' => {
-            if (dir_items.items.len == 0) {
-            } else if (main.config.binreader)
+            if (dir_items.items.len == 0) {} else if (main.config.binreader)
                 message = &.{"File deletion is not available when reading from file."}
             else if (!main.config.can_delete.? and main.config.imported)
-                message = &.{"File deletion is disabled.", "Re-run with --enable-delete to enable this option."}
+                message = &.{ "File deletion is disabled.", "Re-run with --enable-delete to enable this option." }
             else if (!main.config.can_delete.?)
                 message = &.{"File deletion is disabled."}
             else if (dir_items.items[cursor_idx]) |e| {
                 main.state = .delete;
                 const next =
-                    if (cursor_idx+1 < dir_items.items.len) dir_items.items[cursor_idx+1]
-                    else if (cursor_idx == 0) null
-                    else dir_items.items[cursor_idx-1];
+                    if (cursor_idx + 1 < dir_items.items.len) dir_items.items[cursor_idx + 1] else if (cursor_idx == 0) null else dir_items.items[cursor_idx - 1];
                 delete.setup(dir_parent, e, next);
             }
         },
@@ -1009,8 +986,7 @@ pub fn keyInput(ch: i32) void {
 
         // Navigation
         10, 'l', c.KEY_RIGHT => {
-            if (dir_items.items.len == 0) {
-            } else if (dir_items.items[cursor_idx]) |e| {
+            if (dir_items.items.len == 0) {} else if (dir_items.items[cursor_idx]) |e| {
                 if (e.dir()) |d| {
                     enterSub(d);
                     //dir_parent = d;
@@ -1034,12 +1010,23 @@ pub fn keyInput(ch: i32) void {
 
         // Display settings
         'c' => main.config.show_items = !main.config.show_items,
-        'm' => if (main.config.extended) { main.config.show_mtime = !main.config.show_mtime; },
+        'm' => if (main.config.extended) {
+            main.config.show_mtime = !main.config.show_mtime;
+        },
         'g' => {
-            if      (!main.config.show_graph and !main.config.show_percent) { main.config.show_graph = true;  main.config.show_percent = false; }
-            else if ( main.config.show_graph and !main.config.show_percent) { main.config.show_graph = false; main.config.show_percent = true; }
-            else if (!main.config.show_graph and  main.config.show_percent) { main.config.show_graph = true;  main.config.show_percent = true; }
-            else if ( main.config.show_graph and  main.config.show_percent) { main.config.show_graph = false; main.config.show_percent = false; }
+            if (!main.config.show_graph and !main.config.show_percent) {
+                main.config.show_graph = true;
+                main.config.show_percent = false;
+            } else if (main.config.show_graph and !main.config.show_percent) {
+                main.config.show_graph = false;
+                main.config.show_percent = true;
+            } else if (!main.config.show_graph and main.config.show_percent) {
+                main.config.show_graph = true;
+                main.config.show_percent = true;
+            } else if (main.config.show_graph and main.config.show_percent) {
+                main.config.show_graph = false;
+                main.config.show_percent = false;
+            }
         },
         'u' => main.config.show_shared = switch (main.config.show_shared) {
             .off => .shared,

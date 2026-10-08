@@ -52,7 +52,6 @@ const util = @import("util.zig");
 // Rule:
 //   No concurrent method calls on a single Dir object, but objects may be passed between threads.
 
-
 // Concise stat struct for fields we're interested in, with the types used by the model.
 pub const Stat = struct {
     etype: model.EType = .reg,
@@ -64,7 +63,6 @@ pub const Stat = struct {
     atime: i64 = 0, // last access time (unix timestamp), used only for the -a/--access-time scan filter, not persisted
     ext: model.Ext = .{},
 };
-
 
 pub const Dir = struct {
     refcnt: std.atomic.Value(usize) = std.atomic.Value(usize).init(1),
@@ -147,9 +145,9 @@ pub const Dir = struct {
         while (it) |e| : (it = e.parent) components.append(main.allocator, e.name) catch unreachable;
 
         var out: std.ArrayListUnmanaged(u8) = .empty;
-        var i: usize = components.items.len-1;
+        var i: usize = components.items.len - 1;
         while (true) {
-            if (i != components.items.len-1 and !(out.items.len != 0 and out.items[out.items.len-1] == '/'))
+            if (i != components.items.len - 1 and !(out.items.len != 0 and out.items[out.items.len - 1] == '/'))
                 out.append(main.allocator, '/') catch unreachable;
             out.appendSlice(main.allocator, components.items[i]) catch unreachable;
             if (i == 0) break;
@@ -178,7 +176,6 @@ pub const Dir = struct {
     }
 };
 
-
 pub const Thread = struct {
     current_dir: ?*Dir = null,
     lock: std.Thread.Mutex = .{},
@@ -190,11 +187,10 @@ pub const Thread = struct {
         mem: mem_sink.Thread,
         json: void,
         bin: bin_export.Thread,
-    } = .{.mem = .{}},
+    } = .{ .mem = .{} },
 
     fn addBytes(t: *Thread, bytes: u64) void {
-        if (@bitSizeOf(usize) >= 64) _ = t.bytes_seen.fetchAdd(bytes, .monotonic)
-        else {
+        if (@bitSizeOf(usize) >= 64) _ = t.bytes_seen.fetchAdd(bytes, .monotonic) else {
             t.lock.lock();
             defer t.lock.unlock();
             t.bytes_seen.raw += bytes;
@@ -202,8 +198,7 @@ pub const Thread = struct {
     }
 
     fn getBytes(t: *Thread) u64 {
-        if (@bitSizeOf(usize) >= 64) return t.bytes_seen.load(.monotonic)
-        else {
+        if (@bitSizeOf(usize) >= 64) return t.bytes_seen.load(.monotonic) else {
             t.lock.lock();
             defer t.lock.unlock();
             return t.bytes_seen.raw;
@@ -217,7 +212,6 @@ pub const Thread = struct {
     }
 };
 
-
 pub const global = struct {
     pub var state: enum { done, err, zeroing, hlcnt, running } = .running;
     pub var threads: []Thread = undefined;
@@ -227,7 +221,6 @@ pub const global = struct {
     var last_error_lock = std.Thread.Mutex{};
     var need_confirm_quit = false;
 };
-
 
 // Must be the first thing to call from a source; initializes global state.
 pub fn createThreads(num: usize) []Thread {
@@ -243,14 +236,13 @@ pub fn createThreads(num: usize) []Thread {
     global.threads = main.allocator.alloc(Thread, num) catch unreachable;
     for (global.threads) |*t| t.* = .{
         .sink = switch (global.sink) {
-            .mem  => .{ .mem  = .{} },
+            .mem => .{ .mem = .{} },
             .json => .{ .json = {} },
-            .bin  => .{ .bin  = .{} },
+            .bin => .{ .bin = .{} },
         },
     };
     return global.threads;
 }
-
 
 // Must be the last thing to call from a source.
 pub fn done() void {
@@ -272,7 +264,6 @@ pub fn done() void {
     if (main.config.scan_ui == .line) main.handleEvent(false, true);
 }
 
-
 pub fn createRoot(path: []const u8, stat: *const Stat) *Dir {
     const d = main.allocator.create(Dir) catch unreachable;
     d.* = .{
@@ -286,7 +277,6 @@ pub fn createRoot(path: []const u8, stat: *const Stat) *Dir {
     };
     return d;
 }
-
 
 fn drawConsole() void {
     const st = struct {
@@ -314,7 +304,6 @@ fn drawConsole() void {
             wr.print(" {} / {}", .{ model.inodes.add_done, model.inodes.add_total }) catch {};
         wr.writeByte('\n') catch {};
         st.lines_written += 1;
-
     } else if (global.state == .running) {
         var bytes: u64 = 0;
         var files: u64 = 0;
@@ -323,7 +312,7 @@ fn drawConsole() void {
             files += t.files_seen.load(.monotonic);
         }
         const r = ui.FmtSize.fmt(bytes);
-        wr.print("{} files / {s}{s}\n", .{files, r.num(), r.unit}) catch {};
+        wr.print("{} files / {s}{s}\n", .{ files, r.num(), r.unit }) catch {};
         st.lines_written += 1;
 
         for (global.threads, 0..) |*t, i| {
@@ -332,7 +321,7 @@ fn drawConsole() void {
                 defer t.lock.unlock();
                 break :blk if (t.current_dir) |d| d.path() else null;
             };
-            wr.print("  #{}: {s}\n", .{i+1, ui.shorten(ui.toUtf8(dir orelse "(waiting)"), 73)}) catch {};
+            wr.print("  #{}: {s}\n", .{ i + 1, ui.shorten(ui.toUtf8(dir orelse "(waiting)"), 73) }) catch {};
             st.lines_written += 1;
             if (dir) |p| main.allocator.free(p);
         }
@@ -341,9 +330,10 @@ fn drawConsole() void {
     stderr.writeAll(strm.getWritten()) catch {};
 }
 
-
 fn drawProgress() void {
-    const st = struct { var animation_pos: usize = 0; };
+    const st = struct {
+        var animation_pos: usize = 0;
+    };
 
     var bytes: u64 = 0;
     var files: u64 = 0;
@@ -367,7 +357,7 @@ fn drawProgress() void {
     }
 
     for (0..numthreads) |i| {
-        box.move(3+@as(u32, @intCast(i)), 4);
+        box.move(3 + @as(u32, @intCast(i)), 4);
         const dir = blk: {
             const t = &global.threads[i];
             t.lock.lock();
@@ -411,20 +401,19 @@ fn drawProgress() void {
     if (main.config.update_delay < std.time.ns_per_s and width > 40) {
         const txt = "Scanning...";
         st.animation_pos += 1;
-        if (st.animation_pos >= txt.len*2) st.animation_pos = 0;
+        if (st.animation_pos >= txt.len * 2) st.animation_pos = 0;
         if (st.animation_pos < txt.len) {
             box.move(6 + numthreads, 2);
-            for (txt[0..st.animation_pos + 1]) |t| ui.addch(t);
+            for (txt[0 .. st.animation_pos + 1]) |t| ui.addch(t);
         } else {
-            var i: u32 = txt.len-1;
-            while (i > st.animation_pos-txt.len) : (i -= 1) {
-                box.move(6 + numthreads, 2+i);
+            var i: u32 = txt.len - 1;
+            while (i > st.animation_pos - txt.len) : (i -= 1) {
+                box.move(6 + numthreads, 2 + i);
                 ui.addch(txt[i]);
             }
         }
     }
 }
-
 
 fn drawError() void {
     const width = ui.cols -| 5;
@@ -439,14 +428,12 @@ fn drawError() void {
     ui.addstr("Press any key to continue");
 }
 
-
 fn drawMessage(msg: []const u8) void {
     const width = ui.cols -| 5;
     const box = ui.Box.create(4, width, "Scan error");
     box.move(2, 2);
     ui.addstr(msg);
 }
-
 
 pub fn draw() void {
     switch (main.config.scan_ui.?) {
@@ -478,7 +465,6 @@ pub fn draw() void {
     }
 }
 
-
 pub fn keyInput(ch: i32) void {
     switch (global.state) {
         .done => {},
@@ -488,8 +474,7 @@ pub fn keyInput(ch: i32) void {
         .running => {
             switch (ch) {
                 'q' => {
-                    if (main.config.confirm_quit) global.need_confirm_quit = !global.need_confirm_quit
-                   else ui.quit();
+                    if (main.config.confirm_quit) global.need_confirm_quit = !global.need_confirm_quit else ui.quit();
                 },
                 'y', 'Y' => if (global.need_confirm_quit) ui.quit(),
                 else => global.need_confirm_quit = false,

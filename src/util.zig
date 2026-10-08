@@ -73,7 +73,7 @@ test "blocksToSize" {
 pub fn arrayListBufZ(buf: *std.ArrayListUnmanaged(u8), alloc: std.mem.Allocator) [:0]const u8 {
     buf.append(alloc, 0) catch unreachable;
     defer buf.items.len -= 1;
-    return buf.items[0..buf.items.len-1:0];
+    return buf.items[0 .. buf.items.len - 1 :0];
 }
 
 // Format an integer as right-aligned '###.#'.
@@ -106,7 +106,6 @@ test "fmt5dec" {
     try eq("999.9", &fmt5dec(9999));
 }
 
-
 // Straightforward Zig port of strnatcmp() from https://github.com/sourcefrog/natsort/
 // (Requiring nul-terminated strings is ugly, but we've got them anyway and it does simplify the code)
 pub fn strnatcmp(a: [:0]const u8, b: [:0]const u8) std.math.Order {
@@ -132,8 +131,7 @@ pub fn strnatcmp(a: [:0]const u8, b: [:0]const u8) std.math.Order {
                 var bias = std.math.Order.eq;
                 while (true) {
                     if (!isDigit(a[ai]) and !isDigit(b[bi])) {
-                        if (bias != .eq or (a[ai] == 0 and b[bi] == 0)) return bias
-                        else break;
+                        if (bias != .eq or (a[ai] == 0 and b[bi] == 0)) return bias else break;
                     }
                     if (!isDigit(a[ai])) return .lt;
                     if (!isDigit(b[bi])) return .gt;
@@ -206,10 +204,9 @@ test "strnatcmp" {
     for (0..w.len) |i| {
         try eq(strnatcmp(w[i], w[i]), .eq);
         for (0..i) |j| try eq(strnatcmp(w[i], w[j]), .gt);
-        for (i+1..w.len) |j| try eq(strnatcmp(w[i], w[j]), .lt);
+        for (i + 1..w.len) |j| try eq(strnatcmp(w[i], w[j]), .lt);
     }
 }
-
 
 pub fn expanduser(path: []const u8, alloc: std.mem.Allocator) ![:0]u8 {
     if (path.len == 0 or path[0] != '~') return alloc.dupeZ(u8, path);
@@ -237,7 +234,6 @@ pub fn expanduser(path: []const u8, alloc: std.mem.Allocator) ![:0]u8 {
     return try std.mem.concatWithSentinel(alloc, u8, &.{ home, path[len..] }, 0);
 }
 
-
 // Silly abstraction to read a file one line at a time. Only exists to help
 // with supporting both Zig 0.14 and 0.15, can be removed once 0.14 support is
 // dropped.
@@ -260,7 +256,6 @@ pub const LineReader = if (@hasDecl(std.io, "bufferedReader")) struct {
         };
         return s.fbs.getWritten();
     }
-
 } else struct {
     rd: std.fs.File.Reader,
 
